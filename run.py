@@ -1,4 +1,4 @@
-"""Point d'entree de l'application Nissa."""
+"""Point d'entree pour le developpement local."""
 
 import uvicorn
 

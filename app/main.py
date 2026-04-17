@@ -6,7 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
-from fastapi import FastAPI, Form, Depends, Request, Query
+from fastapi import FastAPI, Form, Depends, Request, Query, Header
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session as DBSession
@@ -15,18 +15,14 @@ from twilio.twiml.messaging_response import MessagingResponse
 from app.database import get_db, init_db
 from app.models import User, Question, CheckSession, Answer
 from app.session import handle_incoming_message, start_daily_check, start_occasional_check
-from app.scheduler import start_scheduler, stop_scheduler
 from app.sheets import sync_response_dynamic
-from app.config import GOOGLE_SHEETS_ENABLED
+from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET
 
 # Logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("nissa.log"),
-    ],
+    handlers=[logging.StreamHandler()],
 )
 logger = logging.getLogger("nissa")
 
@@ -34,10 +30,8 @@ logger = logging.getLogger("nissa")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    start_scheduler()
     logger.info("Application Nissa demarree")
     yield
-    stop_scheduler()
     logger.info("Application Nissa arretee")
 
 
@@ -80,6 +74,25 @@ async def whatsapp_webhook(
     twiml = MessagingResponse()
     twiml.message(reply_text)
     return PlainTextResponse(content=str(twiml), media_type="application/xml")
+
+
+# ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
+
+
+@app.get("/cron/daily-check")
+async def cron_daily_check(
+    authorization: str | None = Header(default=None),
+    db: DBSession = Depends(get_db),
+):
+    """Endpoint appele par Vercel Cron pour le check journalier automatique."""
+    # Verifier le secret pour empecher les appels non autorises
+    if CRON_SECRET:
+        expected = f"Bearer {CRON_SECRET}"
+        if authorization != expected:
+            return PlainTextResponse("Unauthorized", status_code=401)
+
+    start_daily_check(db)
+    return {"status": "ok", "message": "Check journalier declenche"}
 
 
 # ─── API ENDPOINTS ───────────────────────────────────────────────────────────
