@@ -13,21 +13,31 @@
         .header nav a { color: rgba(255,255,255,0.7); text-decoration: none; margin-left: 20px; font-size: 14px; }
         .header nav a:hover { color: white; }
 
-        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
 
         .alert { padding: 12px 18px; border-radius: 8px; margin-bottom: 20px; font-size: 14px; }
         .alert.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .alert.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
 
+        /* Onglets */
+        .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+        .tab { padding: 12px 24px; cursor: pointer; font-size: 14px; font-weight: 600; color: #888; border-bottom: 3px solid transparent; margin-bottom: -2px; text-decoration: none; }
+        .tab:hover { color: #333; }
+        .tab.active { color: #1a1a2e; border-bottom-color: #1a1a2e; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
         .section { background: white; border-radius: 10px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
         .section h2 { font-size: 18px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
+        .section h3 { font-size: 15px; margin: 20px 0 12px 0; color: #555; }
 
-        /* Formulaire ajout gerant */
-        .form-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 12px; align-items: end; }
+        /* Formulaires */
+        .form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) auto; gap: 12px; align-items: end; }
         .form-group { display: flex; flex-direction: column; }
-        .form-group label { font-size: 12px; text-transform: uppercase; color: #888; margin-bottom: 4px; letter-spacing: 0.5px; }
-        .form-group input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; }
-        .form-group input:focus { outline: none; border-color: #1a1a2e; }
+        .form-group label { font-size: 11px; text-transform: uppercase; color: #888; margin-bottom: 4px; letter-spacing: 0.5px; }
+        .form-group input, .form-group select, .form-group textarea { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; font-family: inherit; }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: #1a1a2e; }
+        .form-group textarea { resize: vertical; min-height: 60px; }
 
         .btn { padding: 8px 18px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; text-align: center; }
         .btn-primary { background: #1a1a2e; color: white; }
@@ -42,35 +52,37 @@
         .btn-outline:hover { background: #f5f5f5; }
         .btn-sm { padding: 5px 10px; font-size: 12px; }
 
-        /* Tableau gerants */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; padding: 10px 12px; font-size: 12px; text-transform: uppercase; color: #888; border-bottom: 2px solid #f0f0f0; }
+        th { text-align: left; padding: 10px 12px; font-size: 11px; text-transform: uppercase; color: #888; border-bottom: 2px solid #f0f0f0; }
         td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; font-size: 14px; vertical-align: middle; }
-        .actions { display: flex; gap: 6px; align-items: center; }
+        .actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 
         .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
-        .badge.active { background: #d4edda; color: #155724; }
-        .badge.inactive { background: #f8d7da; color: #721c24; }
-        .badge.ok { background: #d4edda; color: #155724; }
-        .badge.problem { background: #f8d7da; color: #721c24; }
-        .badge.oui { color: #2ecc71; }
-        .badge.non { color: #e74c3c; font-weight: 700; }
+        .badge.active, .badge.ok { background: #d4edda; color: #155724; }
+        .badge.inactive, .badge.problem { background: #f8d7da; color: #721c24; }
+        .badge.quotidien { background: #cce5ff; color: #004085; }
+        .badge.occasionnel { background: #fff3cd; color: #856404; }
 
-        /* Modal edition */
+        /* Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; justify-content: center; align-items: center; }
         .modal-overlay.show { display: flex; }
-        .modal { background: white; border-radius: 12px; padding: 30px; width: 90%; max-width: 500px; }
+        .modal { background: white; border-radius: 12px; padding: 30px; width: 90%; max-width: 550px; max-height: 90vh; overflow-y: auto; }
         .modal h3 { margin-bottom: 20px; }
         .modal .form-group { margin-bottom: 14px; }
-        .modal .form-group input { width: 100%; }
+        .modal .form-group input, .modal .form-group select, .modal .form-group textarea { width: 100%; }
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
 
-        /* Actions rapides */
+        /* Check occasionnel */
+        .checkbox-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; margin: 10px 0; }
+        .checkbox-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; font-size: 13px; }
+        .checkbox-item input[type="checkbox"] { width: 16px; height: 16px; }
+
         .quick-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
 
         @media (max-width: 768px) {
             .form-row { grid-template-columns: 1fr; }
             .header { flex-direction: column; gap: 10px; }
+            .tabs { overflow-x: auto; }
         }
     </style>
 </head>
@@ -80,7 +92,7 @@
         <nav>
             <a href="/">Dashboard</a>
             <a href="/admin">Admin</a>
-            <a href="/docs">API Docs</a>
+            <a href="/docs">API</a>
         </nav>
     </div>
 
@@ -93,151 +105,345 @@
         <div class="alert error">{{ error }}</div>
         {% endif %}
 
-        <!-- Actions rapides -->
-        <div class="quick-actions">
-            <form method="POST" action="/admin/trigger-check" style="display:inline;">
-                <button type="submit" class="btn btn-success" onclick="return confirm('Envoyer le check journalier maintenant ?')">Envoyer le check maintenant</button>
-            </form>
-            <a href="/admin/export?days=30" class="btn btn-outline">Exporter CSV (30 jours)</a>
-            <a href="/admin/export?days=7" class="btn btn-outline">Exporter CSV (7 jours)</a>
+        <!-- Onglets -->
+        <div class="tabs">
+            <a class="tab {% if tab == 'questions' %}active{% endif %}" onclick="switchTab('questions')">Questions</a>
+            <a class="tab {% if tab == 'gerants' %}active{% endif %}" onclick="switchTab('gerants')">Gerants</a>
+            <a class="tab {% if tab == 'checks' %}active{% endif %}" onclick="switchTab('checks')">Envoyer un check</a>
+            <a class="tab {% if tab == 'historique' %}active{% endif %}" onclick="switchTab('historique')">Historique</a>
         </div>
 
-        <!-- Ajouter un gerant -->
-        <div class="section">
-            <h2>Ajouter un gerant</h2>
-            <form method="POST" action="/admin/users/add">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Nom complet</label>
-                        <input type="text" name="name" placeholder="Ex: Moussa Ibrahim" required>
+        <!-- ═══ ONGLET QUESTIONS ═══ -->
+        <div class="tab-content {% if tab == 'questions' %}active{% endif %}" id="tab-questions">
+
+            <div class="section">
+                <h2>Ajouter une question</h2>
+                <form method="POST" action="/admin/questions/add">
+                    <div class="form-group" style="margin-bottom:12px;">
+                        <label>Texte de la question</label>
+                        <textarea name="text" placeholder="Ex: Les extincteurs sont-ils en bon etat ?" required></textarea>
                     </div>
-                    <div class="form-group">
-                        <label>Station</label>
-                        <input type="text" name="station" placeholder="Ex: Station Niamey Centre" required>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Type de probleme</label>
+                            <input type="text" name="problem_type" placeholder="Ex: securite">
+                        </div>
+                        <div class="form-group">
+                            <label>Label du probleme</label>
+                            <input type="text" name="problem_label" placeholder="Ex: Extincteur defaillant">
+                        </div>
+                        <div class="form-group">
+                            <label>Programmation</label>
+                            <select name="schedule_type">
+                                <option value="quotidien">Quotidien (chaque jour)</option>
+                                <option value="occasionnel">Occasionnel (sur demande)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Ordre</label>
+                            <input type="number" name="position" value="0" style="width:70px;">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Ajouter</button>
                     </div>
-                    <div class="form-group">
-                        <label>Telephone WhatsApp</label>
-                        <input type="text" name="phone" placeholder="Ex: +22790000001" required>
+                </form>
+            </div>
+
+            <div class="section">
+                <h2>Questions quotidiennes</h2>
+                <p style="color:#888; font-size:13px; margin-bottom:14px;">Envoyees automatiquement chaque jour a tous les gerants actifs.</p>
+                {% set daily = questions | selectattr("schedule_type", "equalto", "quotidien") | list %}
+                {% if daily %}
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Statut</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for q in daily %}
+                        <tr>
+                            <td>{{ q.position }}</td>
+                            <td>{{ q.text }}</td>
+                            <td>{{ q.problem_type or '-' }}</td>
+                            <td><span class="badge {{ 'active' if q.active else 'inactive' }}">{{ 'Actif' if q.active else 'Inactif' }}</span></td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }})">Modifier</button>
+                                    <form method="POST" action="/admin/questions/{{ q.id }}/toggle" style="display:inline;">
+                                        <button type="submit" class="btn btn-warning btn-sm">{{ "Desactiver" if q.active else "Activer" }}</button>
+                                    </form>
+                                    <form method="POST" action="/admin/questions/{{ q.id }}/delete" style="display:inline;">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Supprimer cette question ?')">Supprimer</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:#888;">Aucune question quotidienne.</p>
+                {% endif %}
+            </div>
+
+            <div class="section">
+                <h2>Questions occasionnelles</h2>
+                <p style="color:#888; font-size:13px; margin-bottom:14px;">Envoyees uniquement quand vous le decidez depuis l'onglet "Envoyer un check".</p>
+                {% set occasional = questions | selectattr("schedule_type", "equalto", "occasionnel") | list %}
+                {% if occasional %}
+                <table>
+                    <thead>
+                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Statut</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for q in occasional %}
+                        <tr>
+                            <td>{{ q.position }}</td>
+                            <td>{{ q.text }}</td>
+                            <td>{{ q.problem_type or '-' }}</td>
+                            <td><span class="badge {{ 'active' if q.active else 'inactive' }}">{{ 'Actif' if q.active else 'Inactif' }}</span></td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }})">Modifier</button>
+                                    <form method="POST" action="/admin/questions/{{ q.id }}/toggle" style="display:inline;">
+                                        <button type="submit" class="btn btn-warning btn-sm">{{ "Desactiver" if q.active else "Activer" }}</button>
+                                    </form>
+                                    <form method="POST" action="/admin/questions/{{ q.id }}/delete" style="display:inline;">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Supprimer cette question ?')">Supprimer</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:#888;">Aucune question occasionnelle. Ajoutez-en avec le type "Occasionnel".</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ═══ ONGLET GERANTS ═══ -->
+        <div class="tab-content {% if tab == 'gerants' %}active{% endif %}" id="tab-gerants">
+
+            <div class="section">
+                <h2>Ajouter un gerant</h2>
+                <form method="POST" action="/admin/users/add">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Nom complet</label>
+                            <input type="text" name="name" placeholder="Ex: Moussa Ibrahim" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Station</label>
+                            <input type="text" name="station" placeholder="Ex: Station Niamey Centre" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Telephone WhatsApp</label>
+                            <input type="text" name="phone" placeholder="Ex: +22790000001" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Ajouter</button>
                     </div>
-                    <button type="submit" class="btn btn-primary">Ajouter</button>
+                </form>
+            </div>
+
+            <div class="section">
+                <h2>Gerants ({{ users|length }})</h2>
+                {% if users %}
+                <table>
+                    <thead>
+                        <tr><th>Nom</th><th>Station</th><th>Telephone</th><th>Statut</th><th>Actions</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for u in users %}
+                        <tr>
+                            <td><strong>{{ u.name }}</strong></td>
+                            <td>{{ u.station }}</td>
+                            <td>{{ u.phone }}</td>
+                            <td><span class="badge {{ 'active' if u.active else 'inactive' }}">{{ 'Actif' if u.active else 'Inactif' }}</span></td>
+                            <td>
+                                <div class="actions">
+                                    <button class="btn btn-outline btn-sm" onclick="openEditUser({{ u.id }}, '{{ u.name }}', '{{ u.station }}', '{{ u.phone }}')">Modifier</button>
+                                    <form method="POST" action="/admin/users/{{ u.id }}/toggle" style="display:inline;">
+                                        <button type="submit" class="btn btn-warning btn-sm">{{ "Desactiver" if u.active else "Activer" }}</button>
+                                    </form>
+                                    <form method="POST" action="/admin/users/{{ u.id }}/delete" style="display:inline;">
+                                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Supprimer {{ u.name }} ?')">Supprimer</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:#888;">Aucun gerant.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- ═══ ONGLET ENVOYER UN CHECK ═══ -->
+        <div class="tab-content {% if tab == 'checks' %}active{% endif %}" id="tab-checks">
+
+            <!-- Check quotidien -->
+            <div class="section">
+                <h2>Check quotidien</h2>
+                <p style="color:#888; font-size:13px; margin-bottom:14px;">
+                    Le check quotidien est envoye automatiquement chaque jour. Vous pouvez aussi le declencher manuellement.
+                    Il utilise toutes les questions marquees "Quotidien" et actives.
+                </p>
+                <form method="POST" action="/admin/trigger-daily">
+                    <button type="submit" class="btn btn-success" onclick="return confirm('Envoyer le check quotidien maintenant a tous les gerants ?')">
+                        Envoyer le check quotidien maintenant
+                    </button>
+                </form>
+            </div>
+
+            <!-- Check occasionnel -->
+            <div class="section">
+                <h2>Check occasionnel</h2>
+                <p style="color:#888; font-size:13px; margin-bottom:14px;">
+                    Selectionnez les questions et les gerants, puis envoyez. Le chatbot posera les questions une par une.
+                </p>
+
+                {% if occasional_questions %}
+                <form method="POST" action="/admin/trigger-occasional">
+                    <h3>1. Selectionnez les questions</h3>
+                    <div class="checkbox-grid">
+                        {% for q in occasional_questions %}
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="question_ids" value="{{ q.id }}">
+                            {{ q.text[:60] }}{% if q.text|length > 60 %}...{% endif %}
+                        </label>
+                        {% endfor %}
+                    </div>
+
+                    <h3>2. Selectionnez les gerants</h3>
+                    <div class="checkbox-grid">
+                        {% for u in users %}
+                        {% if u.active %}
+                        <label class="checkbox-item">
+                            <input type="checkbox" name="user_ids" value="{{ u.id }}">
+                            {{ u.name }} - {{ u.station }}
+                        </label>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+
+                    <div style="margin-top:16px; display:flex; gap:10px; align-items:center;">
+                        <button type="submit" class="btn btn-primary" onclick="return confirm('Envoyer ce check occasionnel ?')">
+                            Envoyer le check occasionnel
+                        </button>
+                        <button type="button" class="btn btn-outline" onclick="toggleAll('question_ids')">Tout cocher (questions)</button>
+                        <button type="button" class="btn btn-outline" onclick="toggleAll('user_ids')">Tout cocher (gerants)</button>
+                    </div>
+                </form>
+                {% else %}
+                <p style="color:#888;">Aucune question occasionnelle active. Creez-en dans l'onglet "Questions" avec le type "Occasionnel".</p>
+                {% endif %}
+            </div>
+
+            <!-- Export -->
+            <div class="section">
+                <h2>Export des donnees</h2>
+                <div style="display:flex; gap:12px;">
+                    <a href="/admin/export?days=7" class="btn btn-outline">Export CSV (7 jours)</a>
+                    <a href="/admin/export?days=30" class="btn btn-outline">Export CSV (30 jours)</a>
+                    <a href="/admin/export?days=90" class="btn btn-outline">Export CSV (90 jours)</a>
                 </div>
-            </form>
+            </div>
         </div>
 
-        <!-- Liste des gerants -->
-        <div class="section">
-            <h2>Gerants ({{ users|length }})</h2>
-            {% if users %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Nom</th>
-                        <th>Station</th>
-                        <th>Telephone</th>
-                        <th>Statut</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for u in users %}
-                    <tr>
-                        <td><strong>{{ u.name }}</strong></td>
-                        <td>{{ u.station }}</td>
-                        <td>{{ u.phone }}</td>
-                        <td>
-                            {% if u.active %}
-                            <span class="badge active">Actif</span>
-                            {% else %}
-                            <span class="badge inactive">Inactif</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <div class="actions">
-                                <button class="btn btn-outline btn-sm" onclick="openEdit({{ u.id }}, '{{ u.name }}', '{{ u.station }}', '{{ u.phone }}')">Modifier</button>
-                                <form method="POST" action="/admin/users/{{ u.id }}/toggle" style="display:inline;">
-                                    <button type="submit" class="btn btn-warning btn-sm">
-                                        {{ "Desactiver" if u.active else "Activer" }}
-                                    </button>
-                                </form>
-                                <form method="POST" action="/admin/users/{{ u.id }}/delete" style="display:inline;">
-                                    <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Supprimer {{ u.name }} ?')">Supprimer</button>
-                                </form>
-                            </div>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p style="color: #888; padding: 20px 0;">Aucun gerant enregistre.</p>
-            {% endif %}
-        </div>
-
-        <!-- Historique recent -->
-        <div class="section">
-            <h2>Historique recent (30 jours)</h2>
-            {% if recent_responses %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Station</th>
-                        <th>Pompes</th>
-                        <th>Etat</th>
-                        <th>Monnaie</th>
-                        <th>Besoin</th>
-                        <th>Incident</th>
-                        <th>Statut</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for r in recent_responses %}
-                    <tr>
-                        <td>{{ r.check_date.strftime("%d/%m/%Y") }}</td>
-                        <td><strong>{{ r.station }}</strong></td>
-                        <td><span class="badge {{ 'oui' if r.pompes_ok else 'non' }}">{{ 'OUI' if r.pompes_ok else ('NON' if r.pompes_ok == false else '-') }}</span></td>
-                        <td><span class="badge {{ 'oui' if r.etat_ok else 'non' }}">{{ 'OUI' if r.etat_ok else ('NON' if r.etat_ok == false else '-') }}</span></td>
-                        <td><span class="badge {{ 'oui' if r.monnaie_ok else 'non' }}">{{ 'OUI' if r.monnaie_ok else ('NON' if r.monnaie_ok == false else '-') }}</span></td>
-                        <td><span class="badge {{ 'oui' if r.besoin_ok else 'non' }}">{{ 'OUI' if r.besoin_ok else ('NON' if r.besoin_ok == false else '-') }}</span></td>
-                        <td><span class="badge {{ 'oui' if r.incident_ok else 'non' }}">{{ 'OUI' if r.incident_ok else ('NON' if r.incident_ok == false else '-') }}</span></td>
-                        <td>
-                            {% if r.status == 'OK' %}
-                            <span class="badge ok">OK</span>
-                            {% elif r.status == 'PROBLEME' %}
-                            <span class="badge problem">PROBLEME</span>
-                            {% else %}
-                            <span class="badge">-</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <p style="color: #888; padding: 20px 0;">Aucun historique disponible.</p>
-            {% endif %}
+        <!-- ═══ ONGLET HISTORIQUE ═══ -->
+        <div class="tab-content {% if tab == 'historique' %}active{% endif %}" id="tab-historique">
+            <div class="section">
+                <h2>Historique des checks (30 derniers jours)</h2>
+                {% if history %}
+                <table>
+                    <thead>
+                        <tr><th>Date</th><th>Station</th><th>Gerant</th><th>Type</th><th>Statut</th><th>Problemes</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for h in history %}
+                        <tr>
+                            <td>{{ h.date }}</td>
+                            <td><strong>{{ h.station }}</strong></td>
+                            <td>{{ h.name }}</td>
+                            <td><span class="badge {{ h.check_type }}">{{ h.check_type }}</span></td>
+                            <td><span class="badge {{ 'ok' if h.status == 'OK' else 'problem' }}">{{ h.status }}</span></td>
+                            <td>
+                                {% if h.problems %}
+                                {% for p in h.problems %}
+                                <span style="font-size:12px; color:#c0392b;">{{ p }}</span>{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                                {% else %}
+                                <span style="color:#888;">-</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p style="color:#888;">Aucun historique.</p>
+                {% endif %}
+            </div>
         </div>
     </div>
 
     <!-- Modal edition gerant -->
-    <div class="modal-overlay" id="editModal">
+    <div class="modal-overlay" id="editUserModal">
         <div class="modal">
             <h3>Modifier le gerant</h3>
-            <form method="POST" id="editForm">
+            <form method="POST" id="editUserForm">
                 <div class="form-group">
                     <label>Nom complet</label>
-                    <input type="text" name="name" id="editName" required>
+                    <input type="text" name="name" id="editUserName" required>
                 </div>
                 <div class="form-group">
                     <label>Station</label>
-                    <input type="text" name="station" id="editStation" required>
+                    <input type="text" name="station" id="editUserStation" required>
                 </div>
                 <div class="form-group">
                     <label>Telephone WhatsApp</label>
-                    <input type="text" name="phone" id="editPhone" required>
+                    <input type="text" name="phone" id="editUserPhone" required>
                 </div>
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-outline" onclick="closeEdit()">Annuler</button>
+                    <button type="button" class="btn btn-outline" onclick="closeModal('editUserModal')">Annuler</button>
+                    <button type="submit" class="btn btn-primary">Enregistrer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal edition question -->
+    <div class="modal-overlay" id="editQuestionModal">
+        <div class="modal">
+            <h3>Modifier la question</h3>
+            <form method="POST" id="editQuestionForm">
+                <div class="form-group">
+                    <label>Texte de la question</label>
+                    <textarea name="text" id="editQText" required></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Type de probleme</label>
+                    <input type="text" name="problem_type" id="editQType">
+                </div>
+                <div class="form-group">
+                    <label>Label du probleme</label>
+                    <input type="text" name="problem_label" id="editQLabel">
+                </div>
+                <div class="form-group">
+                    <label>Programmation</label>
+                    <select name="schedule_type" id="editQSchedule">
+                        <option value="quotidien">Quotidien</option>
+                        <option value="occasionnel">Occasionnel</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Ordre</label>
+                    <input type="number" name="position" id="editQPosition">
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-outline" onclick="closeModal('editQuestionModal')">Annuler</button>
                     <button type="submit" class="btn btn-primary">Enregistrer</button>
                 </div>
             </form>
@@ -245,21 +451,51 @@
     </div>
 
     <script>
-        function openEdit(id, name, station, phone) {
-            document.getElementById('editForm').action = '/admin/users/' + id + '/edit';
-            document.getElementById('editName').value = name;
-            document.getElementById('editStation').value = station;
-            document.getElementById('editPhone').value = phone;
-            document.getElementById('editModal').classList.add('show');
+        // Onglets
+        function switchTab(name) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+            history.replaceState(null, '', '/admin?tab=' + name);
         }
 
-        function closeEdit() {
-            document.getElementById('editModal').classList.remove('show');
+        // Modals
+        function closeModal(id) {
+            document.getElementById(id).classList.remove('show');
         }
 
-        document.getElementById('editModal').addEventListener('click', function(e) {
-            if (e.target === this) closeEdit();
+        function openEditUser(id, name, station, phone) {
+            document.getElementById('editUserForm').action = '/admin/users/' + id + '/edit';
+            document.getElementById('editUserName').value = name;
+            document.getElementById('editUserStation').value = station;
+            document.getElementById('editUserPhone').value = phone;
+            document.getElementById('editUserModal').classList.add('show');
+        }
+
+        function openEditQuestion(id, text, type, label, schedule, position) {
+            document.getElementById('editQuestionForm').action = '/admin/questions/' + id + '/edit';
+            document.getElementById('editQText').value = text;
+            document.getElementById('editQType').value = type;
+            document.getElementById('editQLabel').value = label;
+            document.getElementById('editQSchedule').value = schedule;
+            document.getElementById('editQPosition').value = position;
+            document.getElementById('editQuestionModal').classList.add('show');
+        }
+
+        // Fermer modal au clic exterieur
+        document.querySelectorAll('.modal-overlay').forEach(m => {
+            m.addEventListener('click', function(e) {
+                if (e.target === this) this.classList.remove('show');
+            });
         });
+
+        // Toggle all checkboxes
+        function toggleAll(name) {
+            const checkboxes = document.querySelectorAll('input[name="' + name + '"]');
+            const allChecked = [...checkboxes].every(c => c.checked);
+            checkboxes.forEach(c => c.checked = !allChecked);
+        }
     </script>
 </body>
 </html>

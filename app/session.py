@@ -1,13 +1,24 @@
+"""Logique de session chatbot.
+
+Deux flux :
+1. QUOTIDIEN : le cron cree la session + envoie le greeting + question 1.
+   Le gerant repond OUI/NON, le chatbot enchaine les questions.
+2. OCCASIONNEL : l'admin declenche un check ponctuel depuis le panneau.
+   Meme flux conversationnel, mais avec un sous-ensemble de questions.
+
+Dans les deux cas, c'est un chatbot : question par question, reponse OUI/NON.
+"""
+
 import logging
 from datetime import date
 
 from sqlalchemy.orm import Session as DBSession
 
-from app.models import User, Session, Response
+from app.models import User, Question, CheckSession, Answer
 from app.questions import (
-    QUESTIONS,
-    TOTAL_QUESTIONS,
-    GREETING_MESSAGE,
+    GREETING_DAILY,
+    GREETING_OCCASIONAL,
+    QUESTION_FORMAT,
     COMPLETION_OK,
     COMPLETION_PROBLEM,
     INVALID_RESPONSE,
@@ -31,15 +42,21 @@ def normalize_response(text: str) -> bool | None:
     return None
 
 
-def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
-    """Traite un message entrant et retourne la reponse.
+def format_question(question: Question, current: int, total: int) -> str:
+    """Formate une question pour l'affichage chatbot."""
+    return QUESTION_FORMAT.format(
+        current=current,
+        total=total,
+        text=question.text,
+    )
 
-    Deux flux possibles :
-    1. Le cron a deja envoye le greeting + question 0 → session existe,
-       awaiting_answer=True, on attend une reponse OUI/NON.
-    2. L'utilisateur ecrit en premier (pas de session) → on cree session,
-       envoie greeting + question 0, et on attend la reponse au prochain message.
-    """
+
+# ─── TRAITEMENT DES MESSAGES ENTRANTS ────────────────────────────────────────
+
+
+def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
+    """Traite un message WhatsApp entrant et retourne la reponse du chatbot."""
+
     # Identifier l'utilisateur
     user = db.query(User).filter(User.phone == phone, User.active == True).first()
     if not user:
@@ -47,117 +64,175 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
 
     today = date.today()
 
-    # Verifier si le check du jour est deja complete
-    completed_response = (
-        db.query(Response)
-        .filter(
-            Response.user_id == user.id,
-            Response.check_date == today,
-            Response.status != None,
-        )
-        .first()
-    )
-    if completed_response:
-        return ALREADY_COMPLETED
-
-    # Chercher une session active pour aujourd'hui
+    # Chercher une session active (non terminee) pour aujourd'hui
     session = (
-        db.query(Session)
+        db.query(CheckSession)
         .filter(
-            Session.user_id == user.id,
-            Session.check_date == today,
-            Session.completed == False,
+            CheckSession.user_id == user.id,
+            CheckSession.check_date == today,
+            CheckSession.completed == False,
         )
         .first()
     )
 
-    # Pas de session → l'utilisateur ecrit en premier, on demarre le check
+    # Pas de session active → l'utilisateur ecrit en premier, on demarre un check quotidien
     if not session:
-        session = Session(
-            user_id=user.id,
-            check_date=today,
-            current_question=0,
-            awaiting_answer=True,
+        # Verifier si un check quotidien est deja termine aujourd'hui
+        done_today = (
+            db.query(CheckSession)
+            .filter(
+                CheckSession.user_id == user.id,
+                CheckSession.check_date == today,
+                CheckSession.completed == True,
+            )
+            .first()
         )
-        db.add(session)
+        if done_today:
+            return ALREADY_COMPLETED
 
-        response = Response(user_id=user.id, check_date=today, station=user.station)
-        db.add(response)
-        db.commit()
+        return start_check_for_user(db, user, check_type="quotidien")
 
-        greeting = GREETING_MESSAGE.format(name=user.name, station=user.station)
-        question = QUESTIONS[0]["text"]
-        return f"{greeting}\n\n{question}"
-
-    # Session existe mais on n'attend pas encore de reponse
-    # (ne devrait pas arriver, mais securite)
+    # Session active, on attend une reponse
     if not session.awaiting_answer:
+        # Relancer la question courante
         session.awaiting_answer = True
         db.commit()
-        return QUESTIONS[session.current_question]["text"]
+        question_id = session.get_current_question_id()
+        question = db.query(Question).get(question_id)
+        return format_question(question, session.current_index + 1, session.total_questions())
 
-    # On attend une reponse OUI/NON
-    answer = normalize_response(body)
-    if answer is None:
+    # Valider la reponse OUI/NON
+    answer_value = normalize_response(body)
+    if answer_value is None:
         return INVALID_RESPONSE
 
-    # Recuperer ou creer la reponse du jour
-    response = (
-        db.query(Response)
-        .filter(Response.user_id == user.id, Response.check_date == today)
-        .first()
+    # Enregistrer la reponse
+    question_id = session.get_current_question_id()
+    answer = Answer(
+        session_id=session.id,
+        question_id=question_id,
+        answer=answer_value,
     )
-    if not response:
-        response = Response(user_id=user.id, check_date=today, station=user.station)
-        db.add(response)
-        db.commit()
-        db.refresh(response)
+    db.add(answer)
 
-    # Enregistrer la reponse a la question courante
-    current_q = QUESTIONS[session.current_question]
-    setattr(response, current_q["field"], answer)
-
-    # Passer a la question suivante
-    session.current_question += 1
+    # Avancer a la question suivante
+    session.current_index += 1
     db.commit()
 
-    # Verifier si on a termine toutes les questions
-    if session.current_question >= TOTAL_QUESTIONS:
-        return complete_check(db, user, session, response)
+    # Toutes les questions posees ?
+    if session.current_index >= session.total_questions():
+        return complete_check(db, user, session)
 
     # Poser la question suivante
-    return QUESTIONS[session.current_question]["text"]
+    next_question_id = session.get_current_question_id()
+    next_question = db.query(Question).get(next_question_id)
+    return format_question(next_question, session.current_index + 1, session.total_questions())
 
 
-def complete_check(
-    db: DBSession, user: User, session: Session, response: Response
+# ─── DEMARRAGE D'UN CHECK ────────────────────────────────────────────────────
+
+
+def start_check_for_user(
+    db: DBSession,
+    user: User,
+    check_type: str = "quotidien",
+    question_ids: list[int] | None = None,
 ) -> str:
-    """Finalise le check et declenche les alertes si necessaire."""
+    """Demarre un check chatbot pour un gerant.
+
+    Args:
+        check_type: "quotidien" ou "occasionnel"
+        question_ids: liste d'IDs de questions. Si None, prend les questions actives du type.
+
+    Returns:
+        Le message greeting + premiere question a envoyer.
+    """
+    if question_ids is None:
+        questions = (
+            db.query(Question)
+            .filter(Question.schedule_type == check_type, Question.active == True)
+            .order_by(Question.position)
+            .all()
+        )
+        question_ids = [q.id for q in questions]
+    else:
+        questions = (
+            db.query(Question)
+            .filter(Question.id.in_(question_ids))
+            .order_by(Question.position)
+            .all()
+        )
+        question_ids = [q.id for q in questions]
+
+    if not question_ids:
+        return "Aucune question configuree pour ce type de check."
+
+    # Creer la session
+    session = CheckSession(
+        user_id=user.id,
+        check_date=date.today(),
+        check_type=check_type,
+        question_ids=",".join(str(qid) for qid in question_ids),
+        current_index=0,
+        awaiting_answer=True,
+    )
+    db.add(session)
+    db.commit()
+
+    # Construire le message
+    total = len(question_ids)
+    if check_type == "quotidien":
+        greeting = GREETING_DAILY.format(name=user.name, station=user.station, total=total)
+    else:
+        greeting = GREETING_OCCASIONAL.format(name=user.name, station=user.station, total=total)
+
+    first_question = db.query(Question).get(question_ids[0])
+    question_text = format_question(first_question, 1, total)
+
+    return f"{greeting}\n\n{question_text}"
+
+
+# ─── FINALISATION D'UN CHECK ─────────────────────────────────────────────────
+
+
+def complete_check(db: DBSession, user: User, session: CheckSession) -> str:
+    """Finalise un check : determine le statut et envoie les alertes."""
     session.completed = True
     session.awaiting_answer = False
 
-    # Determiner le statut global
-    all_ok = all([
-        response.pompes_ok,
-        response.etat_ok,
-        response.monnaie_ok,
-        response.besoin_ok,
-        response.incident_ok,
-    ])
+    # Charger les reponses avec les questions
+    answers = (
+        db.query(Answer)
+        .filter(Answer.session_id == session.id)
+        .all()
+    )
 
-    response.status = "OK" if all_ok else "PROBLEME"
+    # Trouver les problemes (reponse NON sur une question avec problem_type)
+    problems = []
+    all_ok = True
+
+    for ans in answers:
+        question = db.query(Question).get(ans.question_id)
+        if ans.answer is False and question.problem_type is not None:
+            all_ok = False
+            problems.append({
+                "type": question.problem_type,
+                "label": question.problem_label or question.text,
+            })
+        elif ans.answer is False:
+            all_ok = False
+
+    session.status = "OK" if all_ok else "PROBLEME"
     db.commit()
 
     if all_ok:
         logger.info(f"Check OK pour {user.station} ({user.name})")
         return COMPLETION_OK.format(name=user.name, station=user.station)
 
-    # Identifier les problemes
-    problems = detect_problems(response)
-    problems_text = "\n".join(f"- [{p['type']}] {p['label']}" for p in problems)
+    problems_text = "\n".join(f"- [{p['type'].upper()}] {p['label']}" for p in problems)
 
     # Envoyer alerte a l'assistante
-    send_alert(user, problems, response.check_date)
+    send_alert(user, session, problems)
 
     logger.warning(f"PROBLEME detecte pour {user.station}: {problems_text}")
 
@@ -168,35 +243,23 @@ def complete_check(
     )
 
 
-def detect_problems(response: Response) -> list[dict]:
-    """Detecte les problemes a partir des reponses."""
-    problems = []
-    fields_to_check = [
-        ("pompes_ok", "maintenance", "Pompe hors service"),
-        ("etat_ok", "exploitation", "Etat station defaillant"),
-        ("monnaie_ok", "supervision", "Manque de monnaie"),
-        ("besoin_ok", "logistique", "Besoin materiel signale"),
-        ("incident_ok", "analyse", "Incident signale"),
-    ]
-    for field, problem_type, label in fields_to_check:
-        value = getattr(response, field)
-        if value is False:
-            problems.append({"type": problem_type, "label": label, "field": field})
-    return problems
+# ─── ALERTES ─────────────────────────────────────────────────────────────────
 
 
-def send_alert(user: User, problems: list[dict], check_date: date):
-    """Envoie une alerte a l'assistante."""
+def send_alert(user: User, session: CheckSession, problems: list[dict]):
+    """Envoie une alerte WhatsApp a l'assistante."""
     if not ASSISTANT_WHATSAPP_NUMBER:
         logger.warning("Pas de numero assistante configure, alerte non envoyee")
         return
 
     problems_text = "\n".join(f"- [{p['type'].upper()}] {p['label']}" for p in problems)
+    check_type_label = "Quotidien" if session.check_type == "quotidien" else "Occasionnel"
 
     alert = ALERT_MESSAGE.format(
         station=user.station,
         name=user.name,
-        date=check_date.strftime("%d/%m/%Y"),
+        date=session.check_date.strftime("%d/%m/%Y"),
+        check_type=check_type_label,
         problems=problems_text,
     )
 
@@ -204,59 +267,70 @@ def send_alert(user: User, problems: list[dict], check_date: date):
     logger.info(f"Alerte envoyee a l'assistante pour {user.station}")
 
 
+# ─── CHECK JOURNALIER (CRON) ─────────────────────────────────────────────────
+
+
 def start_daily_check(db: DBSession):
-    """Envoie le check journalier a tous les gerants actifs."""
+    """Envoie le check journalier automatique a tous les gerants actifs.
+
+    Appele par le cron chaque jour. Cree une session chatbot par gerant
+    et envoie le greeting + premiere question.
+    """
     users = db.query(User).filter(User.active == True).all()
     logger.info(f"Lancement check journalier pour {len(users)} gerants")
+
+    # Questions quotidiennes actives
+    daily_questions = (
+        db.query(Question)
+        .filter(Question.schedule_type == "quotidien", Question.active == True)
+        .order_by(Question.position)
+        .all()
+    )
+    question_ids = [q.id for q in daily_questions]
+
+    if not question_ids:
+        logger.warning("Aucune question quotidienne active, check annule")
+        return
 
     today = date.today()
 
     for user in users:
-        # Verifier si deja fait aujourd'hui
+        # Verifier si deja un check aujourd'hui
         existing = (
-            db.query(Response)
+            db.query(CheckSession)
             .filter(
-                Response.user_id == user.id,
-                Response.check_date == today,
-                Response.status != None,
+                CheckSession.user_id == user.id,
+                CheckSession.check_date == today,
             )
             .first()
         )
         if existing:
-            logger.info(f"Check deja complete pour {user.name}, ignore")
+            logger.info(f"Check deja en cours/termine pour {user.name}, ignore")
             continue
 
-        # Verifier si une session est deja en cours
-        active_session = (
-            db.query(Session)
-            .filter(
-                Session.user_id == user.id,
-                Session.check_date == today,
-                Session.completed == False,
-            )
-            .first()
-        )
-        if active_session:
-            logger.info(f"Session deja active pour {user.name}, ignore")
-            continue
-
-        # Creer la session (awaiting_answer=True car on pose la question tout de suite)
-        session = Session(
-            user_id=user.id,
-            check_date=today,
-            current_question=0,
-            awaiting_answer=True,
-        )
-        db.add(session)
-
-        response = Response(user_id=user.id, check_date=today, station=user.station)
-        db.add(response)
-        db.commit()
-
-        # Envoyer le greeting + premiere question
-        greeting = GREETING_MESSAGE.format(name=user.name, station=user.station)
-        question = QUESTIONS[0]["text"]
-        message = f"{greeting}\n\n{question}"
-
+        # Demarrer le check et envoyer le message
+        message = start_check_for_user(db, user, "quotidien", question_ids)
         send_message(user.phone, message)
-        logger.info(f"Check envoye a {user.name} ({user.station})")
+        logger.info(f"Check journalier envoye a {user.name} ({user.station})")
+
+
+# ─── CHECK OCCASIONNEL (ADMIN) ───────────────────────────────────────────────
+
+
+def start_occasional_check(db: DBSession, user_ids: list[int], question_ids: list[int]):
+    """Lance un check occasionnel pour des gerants specifiques.
+
+    Appele depuis le panneau admin. Envoie les questions selectionnees
+    aux gerants selectionnes via le chatbot.
+    """
+    users = db.query(User).filter(User.id.in_(user_ids), User.active == True).all()
+    logger.info(
+        f"Lancement check occasionnel: {len(users)} gerants, {len(question_ids)} questions"
+    )
+
+    for user in users:
+        message = start_check_for_user(db, user, "occasionnel", question_ids)
+        send_message(user.phone, message)
+        logger.info(f"Check occasionnel envoye a {user.name} ({user.station})")
+
+    return len(users)

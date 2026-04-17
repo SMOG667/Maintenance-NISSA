@@ -1,80 +1,89 @@
-# Mapping des questions du check journalier
-# index -> (texte, champ en base, type de probleme)
+"""Messages et donnees de seed pour les questions par defaut."""
 
-QUESTIONS = [
+# Questions par defaut a inserer au premier lancement
+DEFAULT_QUESTIONS = [
     {
-        "index": 0,
-        "text": "1/6 - Toutes les pompes fonctionnent-elles correctement ?\n\nRepondez par *OUI* ou *NON*",
-        "field": "pompes_ok",
+        "text": "Toutes les pompes fonctionnent-elles correctement ?",
         "problem_type": "maintenance",
         "problem_label": "Pompe hors service",
+        "schedule_type": "quotidien",
+        "position": 1,
     },
     {
-        "index": 1,
-        "text": "2/6 - La station est-elle propre et en bon etat aujourd'hui ?\n\nRepondez par *OUI* ou *NON*",
-        "field": "etat_ok",
+        "text": "La station est-elle propre et en bon etat aujourd'hui ?",
         "problem_type": "exploitation",
         "problem_label": "Etat station defaillant",
+        "schedule_type": "quotidien",
+        "position": 2,
     },
     {
-        "index": 2,
-        "text": "3/6 - La station dispose-t-elle de suffisamment de monnaie ?\n\nRepondez par *OUI* ou *NON*",
-        "field": "monnaie_ok",
+        "text": "La station dispose-t-elle de suffisamment de monnaie ?",
         "problem_type": "supervision",
         "problem_label": "Manque de monnaie",
+        "schedule_type": "quotidien",
+        "position": 3,
     },
     {
-        "index": 3,
-        "text": "4/6 - Manquez-vous de materiel ou avez-vous un besoin particulier ?\n\nRepondez par *OUI* ou *NON*\n(OUI = pas de besoin, NON = besoin signale)",
-        "field": "besoin_ok",
+        "text": "Manquez-vous de materiel ou avez-vous un besoin particulier ?",
         "problem_type": "logistique",
         "problem_label": "Besoin materiel signale",
+        "schedule_type": "quotidien",
+        "position": 4,
     },
     {
-        "index": 4,
-        "text": "5/6 - Y a-t-il un probleme ou incident a signaler ?\n\nRepondez par *OUI* ou *NON*\n(OUI = aucun incident, NON = incident signale)",
-        "field": "incident_ok",
+        "text": "Y a-t-il un probleme ou incident a signaler ?",
         "problem_type": "analyse",
         "problem_label": "Incident signale",
+        "schedule_type": "quotidien",
+        "position": 5,
     },
     {
-        "index": 5,
-        "text": "6/6 - Confirmez-vous que ces informations sont correctes ?\n\nRepondez par *OUI* ou *NON*",
-        "field": "confirmation",
+        "text": "Confirmez-vous que ces informations sont correctes ?",
         "problem_type": None,
         "problem_label": None,
+        "schedule_type": "quotidien",
+        "position": 6,
     },
 ]
 
-TOTAL_QUESTIONS = len(QUESTIONS)
+# ─── MESSAGES DU CHATBOT ─────────────────────────────────────────────────────
 
-GREETING_MESSAGE = (
-    "Bonjour {name} ! \n\n"
+GREETING_DAILY = (
+    "Bonjour {name} !\n\n"
     "C'est l'heure du check journalier pour la station *{station}*.\n"
-    "Je vais vous poser 6 questions rapides.\n\n"
+    "Je vais vous poser {total} questions rapides.\n\n"
     "Repondez uniquement par *OUI* ou *NON*.\n\n"
     "C'est parti !"
 )
 
+GREETING_OCCASIONAL = (
+    "Bonjour {name} !\n\n"
+    "Un check ponctuel a ete lance pour la station *{station}*.\n"
+    "Je vais vous poser {total} questions.\n\n"
+    "Repondez uniquement par *OUI* ou *NON*."
+)
+
+QUESTION_FORMAT = "{current}/{total} - {text}\n\nRepondez par *OUI* ou *NON*"
+
 COMPLETION_OK = (
     "Merci {name} !\n\n"
-    "Check journalier termine pour *{station}*.\n"
+    "Check termine pour *{station}*.\n"
     "Statut : *OK* - Aucun probleme detecte.\n\n"
     "Bonne journee !"
 )
 
 COMPLETION_PROBLEM = (
     "Merci {name} !\n\n"
-    "Check journalier termine pour *{station}*.\n"
+    "Check termine pour *{station}*.\n"
     "Statut : *PROBLEME DETECTE*\n\n"
-    "L'assistante a ete notifiee. Les problemes suivants ont ete signales :\n{problems}\n\n"
+    "L'assistante a ete notifiee. Problemes signales :\n{problems}\n\n"
     "Bonne journee !"
 )
 
 INVALID_RESPONSE = "Je n'ai pas compris. Merci de repondre uniquement par *OUI* ou *NON*."
 
 ALREADY_COMPLETED = (
-    "Vous avez deja complete le check journalier pour aujourd'hui.\n"
+    "Vous avez deja un check en cours ou complete.\n"
     "Merci et bonne journee !"
 )
 
@@ -87,7 +96,8 @@ ALERT_MESSAGE = (
     "ALERTE NISSA\n\n"
     "Station : *{station}*\n"
     "Gerant : {name}\n"
-    "Date : {date}\n\n"
+    "Date : {date}\n"
+    "Type : {check_type}\n\n"
     "Problemes detectes :\n{problems}\n\n"
     "Action requise."
 )

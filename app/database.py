@@ -20,5 +20,5 @@ def get_db():
 
 
 def init_db():
-    from app.models import User, Session, Response  # noqa: F401
+    from app.models import User, Question, CheckSession, Answer  # noqa: F401
     Base.metadata.create_all(bind=engine)
