@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nissa - Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
+        .header { background: #1a1a2e; color: white; padding: 20px 30px; }
+        .header h1 { font-size: 24px; }
+        .header p { opacity: 0.7; margin-top: 4px; }
+        .container { max-width: 1100px; margin: 30px auto; padding: 0 20px; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 30px; }
+        .stat-card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stat-card .label { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card .value { font-size: 32px; font-weight: 700; margin-top: 6px; }
+        .stat-card .value.ok { color: #2ecc71; }
+        .stat-card .value.problem { color: #e74c3c; }
+        .stat-card .value.pending { color: #f39c12; }
+        .section { background: white; border-radius: 10px; padding: 24px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .section h2 { font-size: 18px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 2px solid #f0f0f0; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px 12px; font-size: 12px; text-transform: uppercase; color: #888; border-bottom: 2px solid #f0f0f0; }
+        td { padding: 10px 12px; border-bottom: 1px solid #f5f5f5; font-size: 14px; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        .badge.ok { background: #d4edda; color: #155724; }
+        .badge.problem { background: #f8d7da; color: #721c24; }
+        .badge.pending { background: #fff3cd; color: #856404; }
+        .badge.oui { color: #2ecc71; }
+        .badge.non { color: #e74c3c; font-weight: 700; }
+        .stations-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+        .station-tag { padding: 8px 14px; border-radius: 8px; font-size: 13px; font-weight: 500; text-align: center; }
+        .station-tag.done { background: #d4edda; color: #155724; }
+        .station-tag.wait { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>NISSA - Suivi Stations</h1>
+        <p>{{ today }}</p>
+    </div>
+
+    <div class="container">
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">Checks cette semaine</div>
+                <div class="value">{{ total_checks }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Tout OK</div>
+                <div class="value ok">{{ ok_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Problemes</div>
+                <div class="value problem">{{ problems_count }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">En attente aujourd'hui</div>
+                <div class="value pending">{{ pending_stations|length }}</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Stations aujourd'hui</h2>
+            <div class="stations-grid">
+                {% for station in completed_stations %}
+                <div class="station-tag done">{{ station }}</div>
+                {% endfor %}
+                {% for station in pending_stations %}
+                <div class="station-tag wait">{{ station }} (en attente)</div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Checks du jour</h2>
+            {% if today_responses %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Station</th>
+                        <th>Pompes</th>
+                        <th>Etat</th>
+                        <th>Monnaie</th>
+                        <th>Besoin</th>
+                        <th>Incident</th>
+                        <th>Statut</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in today_responses %}
+                    <tr>
+                        <td><strong>{{ r.station }}</strong></td>
+                        <td><span class="badge {{ 'oui' if r.pompes_ok else 'non' }}">{{ 'OUI' if r.pompes_ok else ('NON' if r.pompes_ok == false else '-') }}</span></td>
+                        <td><span class="badge {{ 'oui' if r.etat_ok else 'non' }}">{{ 'OUI' if r.etat_ok else ('NON' if r.etat_ok == false else '-') }}</span></td>
+                        <td><span class="badge {{ 'oui' if r.monnaie_ok else 'non' }}">{{ 'OUI' if r.monnaie_ok else ('NON' if r.monnaie_ok == false else '-') }}</span></td>
+                        <td><span class="badge {{ 'oui' if r.besoin_ok else 'non' }}">{{ 'OUI' if r.besoin_ok else ('NON' if r.besoin_ok == false else '-') }}</span></td>
+                        <td><span class="badge {{ 'oui' if r.incident_ok else 'non' }}">{{ 'OUI' if r.incident_ok else ('NON' if r.incident_ok == false else '-') }}</span></td>
+                        <td>
+                            {% if r.status == 'OK' %}
+                            <span class="badge ok">OK</span>
+                            {% elif r.status == 'PROBLEME' %}
+                            <span class="badge problem">PROBLEME</span>
+                            {% else %}
+                            <span class="badge pending">En cours</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p style="color: #888; padding: 20px 0;">Aucun check enregistre aujourd'hui.</p>
+            {% endif %}
+        </div>
+
+        <div class="section">
+            <h2>Gerants enregistres</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Station</th>
+                        <th>Telephone</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr>
+                        <td>{{ u.name }}</td>
+                        <td>{{ u.station }}</td>
+                        <td>{{ u.phone }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
