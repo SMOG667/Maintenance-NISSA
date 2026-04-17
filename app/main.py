@@ -1,11 +1,13 @@
 """Application principale Nissa - Chatbot WhatsApp."""
 
+import csv
+import io
 import logging
 from contextlib import asynccontextmanager
 from datetime import date, timedelta
 
-from fastapi import FastAPI, Form, Depends, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
+from fastapi import FastAPI, Form, Depends, Request, Query
+from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session as DBSession
 from twilio.twiml.messaging_response import MessagingResponse
@@ -164,41 +166,164 @@ async def list_problems(days: int = 7, db: DBSession = Depends(get_db)):
     return results
 
 
-@app.post("/api/users")
-async def add_user(
+# ─── ADMIN : GESTION DES GERANTS ─────────────────────────────────────────────
+
+
+@app.post("/admin/users/add")
+async def admin_add_user(
     phone: str = Form(...),
     name: str = Form(...),
     station: str = Form(...),
     db: DBSession = Depends(get_db),
 ):
-    """Ajoute un nouveau gerant."""
+    """Ajoute un gerant depuis le panneau admin."""
+    # Normaliser le numero
+    phone = phone.strip()
+    if not phone.startswith("whatsapp:"):
+        phone = f"whatsapp:{phone}"
+
     existing = db.query(User).filter(User.phone == phone).first()
     if existing:
-        return {"status": "error", "message": "Ce numero existe deja"}
+        return RedirectResponse(url="/admin?error=Ce+numero+existe+deja", status_code=303)
 
-    user = User(phone=phone, name=name, station=station, active=True)
+    user = User(phone=phone, name=name.strip(), station=station.strip(), active=True)
     db.add(user)
     db.commit()
-    return {"status": "ok", "user_id": user.id}
+    logger.info(f"Admin: gerant ajoute - {name} ({station})")
+    return RedirectResponse(url="/admin?success=Gerant+ajoute", status_code=303)
 
 
-# ─── DASHBOARD ────────────────────────────────────────────────────────────────
+@app.post("/admin/users/{user_id}/edit")
+async def admin_edit_user(
+    user_id: int,
+    phone: str = Form(...),
+    name: str = Form(...),
+    station: str = Form(...),
+    db: DBSession = Depends(get_db),
+):
+    """Modifie un gerant."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return RedirectResponse(url="/admin?error=Gerant+introuvable", status_code=303)
+
+    phone = phone.strip()
+    if not phone.startswith("whatsapp:"):
+        phone = f"whatsapp:{phone}"
+
+    user.phone = phone
+    user.name = name.strip()
+    user.station = station.strip()
+    db.commit()
+    logger.info(f"Admin: gerant modifie - {name} ({station})")
+    return RedirectResponse(url="/admin?success=Gerant+modifie", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/toggle")
+async def admin_toggle_user(user_id: int, db: DBSession = Depends(get_db)):
+    """Active ou desactive un gerant."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return RedirectResponse(url="/admin?error=Gerant+introuvable", status_code=303)
+
+    user.active = not user.active
+    db.commit()
+    state = "active" if user.active else "desactive"
+    logger.info(f"Admin: gerant {state} - {user.name}")
+    return RedirectResponse(url="/admin?success=Gerant+{state}", status_code=303)
+
+
+@app.post("/admin/users/{user_id}/delete")
+async def admin_delete_user(user_id: int, db: DBSession = Depends(get_db)):
+    """Supprime un gerant."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return RedirectResponse(url="/admin?error=Gerant+introuvable", status_code=303)
+
+    name = user.name
+    db.delete(user)
+    db.commit()
+    logger.info(f"Admin: gerant supprime - {name}")
+    return RedirectResponse(url="/admin?success=Gerant+supprime", status_code=303)
+
+
+# ─── ADMIN : EXPORT CSV ──────────────────────────────────────────────────────
+
+
+@app.get("/admin/export")
+async def admin_export_csv(
+    days: int = Query(default=30),
+    db: DBSession = Depends(get_db),
+):
+    """Exporte les reponses en CSV."""
+    since = date.today() - timedelta(days=days)
+    responses = (
+        db.query(Response)
+        .filter(Response.check_date >= since)
+        .order_by(Response.check_date.desc())
+        .all()
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output, delimiter=";")
+    writer.writerow([
+        "Date", "Station", "Pompes", "Etat", "Monnaie",
+        "Besoin", "Incident", "Confirmation", "Statut",
+    ])
+
+    def b(val):
+        if val is True:
+            return "OUI"
+        if val is False:
+            return "NON"
+        return ""
+
+    for r in responses:
+        writer.writerow([
+            r.check_date.strftime("%d/%m/%Y"),
+            r.station,
+            b(r.pompes_ok),
+            b(r.etat_ok),
+            b(r.monnaie_ok),
+            b(r.besoin_ok),
+            b(r.incident_ok),
+            b(r.confirmation),
+            r.status or "",
+        ])
+
+    output.seek(0)
+    filename = f"nissa_export_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+# ─── ADMIN : DECLENCHEMENT MANUEL ────────────────────────────────────────────
+
+
+@app.post("/admin/trigger-check")
+async def admin_trigger_check(db: DBSession = Depends(get_db)):
+    """Declenche le check journalier depuis l'admin."""
+    start_daily_check(db)
+    return RedirectResponse(url="/admin?success=Check+journalier+envoye", status_code=303)
+
+
+# ─── PAGES HTML ──────────────────────────────────────────────────────────────
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: DBSession = Depends(get_db)):
-    """Dashboard simple de suivi."""
+    """Dashboard de suivi."""
     today = date.today()
     week_ago = today - timedelta(days=7)
 
     users = db.query(User).filter(User.active == True).all()
 
-    # Reponses du jour
     today_responses = (
         db.query(Response).filter(Response.check_date == today).all()
     )
 
-    # Stats semaine
     week_responses = (
         db.query(Response)
         .filter(Response.check_date >= week_ago, Response.status != None)
@@ -209,7 +334,6 @@ async def dashboard(request: Request, db: DBSession = Depends(get_db)):
     problems_count = sum(1 for r in week_responses if r.status == "PROBLEME")
     ok_count = total_checks - problems_count
 
-    # Stations en attente aujourd'hui
     completed_stations = {r.station for r in today_responses if r.status is not None}
     all_stations = {u.station for u in users}
     pending_stations = all_stations - completed_stations
@@ -224,4 +348,33 @@ async def dashboard(request: Request, db: DBSession = Depends(get_db)):
         "ok_count": ok_count,
         "pending_stations": sorted(pending_stations),
         "completed_stations": sorted(completed_stations),
+    })
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_panel(
+    request: Request,
+    success: str | None = None,
+    error: str | None = None,
+    db: DBSession = Depends(get_db),
+):
+    """Panneau d'administration."""
+    users = db.query(User).order_by(User.station).all()
+
+    # Historique recent
+    since = date.today() - timedelta(days=30)
+    recent_responses = (
+        db.query(Response)
+        .filter(Response.check_date >= since, Response.status != None)
+        .order_by(Response.check_date.desc())
+        .limit(50)
+        .all()
+    )
+
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "users": users,
+        "recent_responses": recent_responses,
+        "success": success,
+        "error": error,
     })
