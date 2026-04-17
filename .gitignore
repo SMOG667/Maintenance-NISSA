@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .env
 *.db
+*.log
 service_account.json
 venv/
 .venv/

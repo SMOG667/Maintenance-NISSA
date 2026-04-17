@@ -31,20 +31,36 @@ def normalize_response(text: str) -> bool | None:
     return None
 
 
-def get_or_create_session(db: DBSession, user: User) -> Session | None:
-    """Recupere ou cree la session du jour pour un utilisateur."""
+def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
+    """Traite un message entrant et retourne la reponse.
+
+    Deux flux possibles :
+    1. Le cron a deja envoye le greeting + question 0 → session existe,
+       awaiting_answer=True, on attend une reponse OUI/NON.
+    2. L'utilisateur ecrit en premier (pas de session) → on cree session,
+       envoie greeting + question 0, et on attend la reponse au prochain message.
+    """
+    # Identifier l'utilisateur
+    user = db.query(User).filter(User.phone == phone, User.active == True).first()
+    if not user:
+        return NO_USER_FOUND
+
     today = date.today()
 
-    # Verifier si un check est deja complete aujourd'hui
-    existing_response = (
+    # Verifier si le check du jour est deja complete
+    completed_response = (
         db.query(Response)
-        .filter(Response.user_id == user.id, Response.check_date == today)
+        .filter(
+            Response.user_id == user.id,
+            Response.check_date == today,
+            Response.status != None,
+        )
         .first()
     )
-    if existing_response and existing_response.status is not None:
-        return None  # Deja complete
+    if completed_response:
+        return ALREADY_COMPLETED
 
-    # Chercher une session active
+    # Chercher une session active pour aujourd'hui
     session = (
         db.query(Session)
         .filter(
@@ -55,80 +71,57 @@ def get_or_create_session(db: DBSession, user: User) -> Session | None:
         .first()
     )
 
+    # Pas de session → l'utilisateur ecrit en premier, on demarre le check
     if not session:
-        session = Session(user_id=user.id, check_date=today, current_question=0)
-        db.add(session)
-        db.commit()
-        db.refresh(session)
-
-    return session
-
-
-def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
-    """Traite un message entrant et retourne la reponse."""
-    # Identifier l'utilisateur
-    user = db.query(User).filter(User.phone == phone, User.active == True).first()
-    if not user:
-        return NO_USER_FOUND
-
-    # Obtenir ou creer la session
-    session = get_or_create_session(db, user)
-    if session is None:
-        return ALREADY_COMPLETED
-
-    # Si c'est le debut (question 0 pas encore posee), on envoie le greeting
-    # et la premiere question. Cela arrive quand l'utilisateur ecrit en premier.
-    if session.current_question == 0:
-        # Verifier si c'est un message initial ou une reponse a la question 0
-        existing_response = (
-            db.query(Response)
-            .filter(Response.user_id == user.id, Response.check_date == date.today())
-            .first()
+        session = Session(
+            user_id=user.id,
+            check_date=today,
+            current_question=0,
+            awaiting_answer=True,
         )
-        if not existing_response:
-            # Premier message, on cree la reponse et envoie la premiere question
-            response = Response(
-                user_id=user.id,
-                check_date=date.today(),
-                station=user.station,
-            )
-            db.add(response)
-            db.commit()
+        db.add(session)
 
-            greeting = GREETING_MESSAGE.format(name=user.name, station=user.station)
-            question = QUESTIONS[0]["text"]
-            return f"{greeting}\n\n{question}"
+        response = Response(user_id=user.id, check_date=today, station=user.station)
+        db.add(response)
+        db.commit()
 
-    # Valider la reponse
+        greeting = GREETING_MESSAGE.format(name=user.name, station=user.station)
+        question = QUESTIONS[0]["text"]
+        return f"{greeting}\n\n{question}"
+
+    # Session existe mais on n'attend pas encore de reponse
+    # (ne devrait pas arriver, mais securite)
+    if not session.awaiting_answer:
+        session.awaiting_answer = True
+        db.commit()
+        return QUESTIONS[session.current_question]["text"]
+
+    # On attend une reponse OUI/NON
     answer = normalize_response(body)
     if answer is None:
         return INVALID_RESPONSE
 
-    # Enregistrer la reponse
+    # Recuperer ou creer la reponse du jour
     response = (
         db.query(Response)
-        .filter(Response.user_id == user.id, Response.check_date == date.today())
+        .filter(Response.user_id == user.id, Response.check_date == today)
         .first()
     )
     if not response:
-        response = Response(
-            user_id=user.id,
-            check_date=date.today(),
-            station=user.station,
-        )
+        response = Response(user_id=user.id, check_date=today, station=user.station)
         db.add(response)
         db.commit()
         db.refresh(response)
 
+    # Enregistrer la reponse a la question courante
     current_q = QUESTIONS[session.current_question]
     setattr(response, current_q["field"], answer)
-    db.commit()
 
     # Passer a la question suivante
     session.current_question += 1
     db.commit()
 
-    # Verifier si on a termine
+    # Verifier si on a termine toutes les questions
     if session.current_question >= TOTAL_QUESTIONS:
         return complete_check(db, user, session, response)
 
@@ -141,8 +134,9 @@ def complete_check(
 ) -> str:
     """Finalise le check et declenche les alertes si necessaire."""
     session.completed = True
+    session.awaiting_answer = False
 
-    # Determiner le statut
+    # Determiner le statut global
     all_ok = all([
         response.pompes_ok,
         response.etat_ok,
@@ -215,9 +209,9 @@ def start_daily_check(db: DBSession):
     users = db.query(User).filter(User.active == True).all()
     logger.info(f"Lancement check journalier pour {len(users)} gerants")
 
-    for user in users:
-        today = date.today()
+    today = date.today()
 
+    for user in users:
         # Verifier si deja fait aujourd'hui
         existing = (
             db.query(Response)
@@ -232,8 +226,27 @@ def start_daily_check(db: DBSession):
             logger.info(f"Check deja complete pour {user.name}, ignore")
             continue
 
-        # Creer la session et la reponse
-        session = Session(user_id=user.id, check_date=today, current_question=0)
+        # Verifier si une session est deja en cours
+        active_session = (
+            db.query(Session)
+            .filter(
+                Session.user_id == user.id,
+                Session.check_date == today,
+                Session.completed == False,
+            )
+            .first()
+        )
+        if active_session:
+            logger.info(f"Session deja active pour {user.name}, ignore")
+            continue
+
+        # Creer la session (awaiting_answer=True car on pose la question tout de suite)
+        session = Session(
+            user_id=user.id,
+            check_date=today,
+            current_question=0,
+            awaiting_answer=True,
+        )
         db.add(session)
 
         response = Response(user_id=user.id, check_date=today, station=user.station)

@@ -26,6 +26,7 @@ class Session(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     check_date: Mapped[date] = mapped_column(Date, default=date.today)
     current_question: Mapped[int] = mapped_column(Integer, default=0)
+    awaiting_answer: Mapped[bool] = mapped_column(Boolean, default=False)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
