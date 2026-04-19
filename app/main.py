@@ -10,13 +10,13 @@ from fastapi import FastAPI, Form, Depends, Request, Query, Header
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session as DBSession
-from twilio.twiml.messaging_response import MessagingResponse
 
 from app.database import get_db, init_db
 from app.models import User, Question, CheckSession, Answer
 from app.session import handle_incoming_message, start_daily_check, start_occasional_check
 from app.sheets import sync_response_dynamic
-from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET
+from app.whatsapp import send_message
+from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, WHATSAPP_VERIFY_TOKEN
 
 # Logging
 logging.basicConfig(
@@ -35,45 +35,90 @@ async def lifespan(app: FastAPI):
     logger.info("Application Nissa arretee")
 
 
-app = FastAPI(title="Nissa - Chatbot WhatsApp", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Nissa - Chatbot WhatsApp", version="3.0.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
 
 
-# ─── WEBHOOK WHATSAPP (TWILIO) ───────────────────────────────────────────────
+# ─── WEBHOOK WHATSAPP (META CLOUD API) ──────────────────────────────────────
+
+
+@app.get("/webhook")
+async def whatsapp_verify(
+    request: Request,
+):
+    """Endpoint de verification du webhook Meta.
+
+    Meta envoie une requete GET avec hub.mode, hub.verify_token et hub.challenge.
+    On verifie le token et on renvoie le challenge.
+    """
+    params = request.query_params
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge")
+
+    if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
+        logger.info("Webhook verifie avec succes")
+        return PlainTextResponse(content=challenge, status_code=200)
+
+    logger.warning(f"Verification webhook echouee: mode={mode}, token={token}")
+    return PlainTextResponse(content="Forbidden", status_code=403)
 
 
 @app.post("/webhook")
 async def whatsapp_webhook(
-    From: str = Form(...),
-    Body: str = Form(...),
+    request: Request,
     db: DBSession = Depends(get_db),
 ):
-    """Endpoint webhook pour recevoir les messages WhatsApp via Twilio."""
-    logger.info(f"Message recu de {From}: {Body}")
+    """Endpoint webhook pour recevoir les messages WhatsApp via Meta Cloud API."""
+    body = await request.json()
 
-    reply_text = handle_incoming_message(db, From, Body)
+    # Meta envoie des notifications de statut (sent, delivered, read) qu'on ignore
+    entry = body.get("entry", [])
+    if not entry:
+        return {"status": "ok"}
 
-    # Sync Google Sheets si check complete
-    if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
-        user = db.query(User).filter(User.phone == From).first()
-        if user:
-            session = (
-                db.query(CheckSession)
-                .filter(
-                    CheckSession.user_id == user.id,
-                    CheckSession.check_date == date.today(),
-                    CheckSession.completed == True,
-                )
-                .order_by(CheckSession.created_at.desc())
-                .first()
-            )
-            if session:
-                sync_response_dynamic(db, session, user.name)
+    for e in entry:
+        changes = e.get("changes", [])
+        for change in changes:
+            value = change.get("value", {})
+            messages = value.get("messages", [])
 
-    # Reponse TwiML
-    twiml = MessagingResponse()
-    twiml.message(reply_text)
-    return PlainTextResponse(content=str(twiml), media_type="application/xml")
+            for msg in messages:
+                if msg.get("type") != "text":
+                    continue
+
+                # Extraire le numero et le texte
+                sender = msg["from"]  # Format: 22790000000 (sans +)
+                text = msg["text"]["body"]
+
+                # Convertir au format stocke en base (+22790000000)
+                phone = f"+{sender}"
+
+                logger.info(f"Message recu de {phone}: {text}")
+
+                reply_text = handle_incoming_message(db, phone, text)
+
+                # Envoyer la reponse via l'API Meta
+                send_message(phone, reply_text)
+
+                # Sync Google Sheets si check complete
+                if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
+                    user = db.query(User).filter(User.phone == phone).first()
+                    if user:
+                        session = (
+                            db.query(CheckSession)
+                            .filter(
+                                CheckSession.user_id == user.id,
+                                CheckSession.check_date == date.today(),
+                                CheckSession.completed == True,
+                            )
+                            .order_by(CheckSession.created_at.desc())
+                            .first()
+                        )
+                        if session:
+                            sync_response_dynamic(db, session, user.name)
+
+    return {"status": "ok"}
 
 
 # ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
@@ -170,8 +215,10 @@ async def admin_add_user(
     db: DBSession = Depends(get_db),
 ):
     phone = phone.strip()
-    if not phone.startswith("whatsapp:"):
-        phone = f"whatsapp:{phone}"
+    # Nettoyer le format : on stocke en +XXXXXXXXXXX
+    phone = phone.replace("whatsapp:", "").strip()
+    if not phone.startswith("+"):
+        phone = f"+{phone}"
 
     existing = db.query(User).filter(User.phone == phone).first()
     if existing:
@@ -197,8 +244,9 @@ async def admin_edit_user(
         return RedirectResponse(url="/admin?tab=gerants&error=Gerant+introuvable", status_code=303)
 
     phone = phone.strip()
-    if not phone.startswith("whatsapp:"):
-        phone = f"whatsapp:{phone}"
+    phone = phone.replace("whatsapp:", "").strip()
+    if not phone.startswith("+"):
+        phone = f"+{phone}"
 
     user.phone = phone
     user.name = name.strip()

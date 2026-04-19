@@ -1,22 +1,22 @@
 # NISSA - Chatbot WhatsApp de Maintenance Stations
 
-Systeme de check journalier des stations-service par WhatsApp.
+Systeme de check journalier des stations-service par WhatsApp, utilisant l'API WhatsApp Cloud de Meta.
 
 ## Architecture
 
 ```
 app/
-├── main.py          # FastAPI - endpoints + webhook + dashboard
+├─��� main.py          # FastAPI - endpoints + webhook Meta + dashboard + admin
 ├── config.py        # Configuration (.env)
-├── database.py      # SQLAlchemy setup
-├── models.py        # Modeles: User, Session, Response
-├── questions.py     # Questions, messages, mapping problemes
+├── database.py      # SQLAlchemy setup (SQLite / PostgreSQL)
+├── models.py        # Modeles: User, Question, CheckSession, Answer
+├── questions.py     # Questions par defaut + messages du chatbot
 ├── session.py       # Logique de session + traitement messages
-├── whatsapp.py      # Integration Twilio WhatsApp
-├── scheduler.py     # Cron journalier (APScheduler)
+├── whatsapp.py      # Client WhatsApp Cloud API (Meta Graph API)
 ├── sheets.py        # Integration Google Sheets (optionnel)
 └── templates/
-    └── dashboard.html
+    ├── dashboard.html  # Dashboard public
+    └── admin.html      # Panneau d'administration
 ```
 
 ## Installation
@@ -34,17 +34,18 @@ pip install -r requirements.txt
 
 # 4. Configurer les variables d'environnement
 cp .env.example .env
-# Editer .env avec vos credentials Twilio
+# Editer .env avec vos credentials Meta WhatsApp
 ```
 
-## Configuration Twilio
+## Configuration WhatsApp Cloud API (Meta)
 
-1. Creer un compte sur https://www.twilio.com
-2. Activer le Sandbox WhatsApp dans la console Twilio
-3. Recuperer `ACCOUNT_SID` et `AUTH_TOKEN`
-4. Configurer le webhook dans Twilio :
+1. Creer un compte sur https://developers.facebook.com
+2. Creer une app de type "WhatsApp Business"
+3. Recuperer le **Token d'acces** et le **Phone Number ID**
+4. Configurer le webhook dans l'app Meta :
    - URL : `https://votre-domaine.com/webhook`
-   - Methode : POST
+   - Verify Token : celui defini dans votre `.env` (WHATSAPP_VERIFY_TOKEN)
+   - S'abonner a l'evenement **messages**
 5. Renseigner les valeurs dans `.env`
 
 ## Lancement
@@ -59,7 +60,10 @@ python run.py
 
 Le serveur demarre sur `http://localhost:8000`
 
-## Test local (sans Twilio)
+- Dashboard : `http://localhost:8000/`
+- Admin : `http://localhost:8000/admin`
+
+## Test local (sans WhatsApp)
 
 ```bash
 python test_local.py
@@ -67,34 +71,32 @@ python test_local.py
 
 Ce script simule l'interaction chatbot dans le terminal.
 
-## Test avec ngrok (avec Twilio)
+## Endpoints
 
-```bash
-# Terminal 1 : lancer le serveur
-python run.py
+| Methode | URL                      | Description                          |
+|---------|--------------------------|--------------------------------------|
+| GET     | `/webhook`               | Verification webhook Meta            |
+| POST    | `/webhook`               | Reception messages WhatsApp          |
+| GET     | `/cron/daily-check`      | Check journalier (cron Vercel)       |
+| GET     | `/api/stations`          | Liste des stations/gerants           |
+| GET     | `/api/questions`         | Liste des questions                  |
+| GET     | `/api/checks`            | Historique des checks                |
+| GET     | `/`                      | Dashboard de suivi                   |
+| GET     | `/admin`                 | Panneau d'administration             |
+| GET     | `/admin/export`          | Export CSV                           |
 
-# Terminal 2 : exposer le serveur
-ngrok http 8000
-```
+## Deploiement Vercel + Supabase
 
-Copier l'URL ngrok (ex: `https://abc123.ngrok.io/webhook`) dans la config webhook Twilio.
-
-## Endpoints API
-
-| Methode | URL                 | Description                    |
-|---------|---------------------|--------------------------------|
-| POST    | `/webhook`          | Webhook Twilio WhatsApp        |
-| POST    | `/api/trigger-check`| Declencher le check manuellement|
-| GET     | `/api/stations`     | Liste des stations/gerants     |
-| GET     | `/api/responses`    | Historique des reponses        |
-| GET     | `/api/problems`     | Liste des problemes detectes   |
-| POST    | `/api/users`        | Ajouter un gerant              |
-| GET     | `/`                 | Dashboard de suivi             |
-
-### Parametres
-
-- `GET /api/responses?station=Station Niamey&days=30`
-- `GET /api/problems?days=14`
+1. Creer un projet Supabase et recuperer l'URL PostgreSQL
+2. Deployer sur Vercel (connecter le repo GitHub)
+3. Configurer les variables d'environnement dans Vercel :
+   - `WHATSAPP_TOKEN`
+   - `WHATSAPP_PHONE_NUMBER_ID`
+   - `WHATSAPP_VERIFY_TOKEN`
+   - `ASSISTANT_WHATSAPP_NUMBER`
+   - `DATABASE_URL` (URL PostgreSQL Supabase)
+   - `CRON_SECRET`
+4. Le cron Vercel envoie automatiquement le check journalier a 7h UTC
 
 ## Google Sheets (optionnel)
 
@@ -107,58 +109,3 @@ Copier l'URL ngrok (ex: `https://abc123.ngrok.io/webhook`) dans la config webhoo
    GOOGLE_SHEETS_ENABLED=true
    GOOGLE_SHEETS_ID=votre_id_spreadsheet
    ```
-
-## Deploiement Production
-
-### Option 1 : VPS (recommande)
-
-```bash
-# Sur le serveur
-pip install -r requirements.txt
-cp .env.example .env
-# Configurer .env
-
-# Avec systemd ou supervisor
-uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-### Option 2 : Railway / Render
-
-1. Connecter le repo GitHub
-2. Configurer les variables d'environnement
-3. Commande de demarrage : `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-
-## Structure Base de Donnees
-
-### users
-| Colonne  | Type    | Description                      |
-|----------|---------|----------------------------------|
-| id       | INTEGER | Cle primaire                     |
-| phone    | TEXT    | Numero WhatsApp (whatsapp:+XXX)  |
-| name     | TEXT    | Nom du gerant                    |
-| station  | TEXT    | Nom de la station                |
-| active   | BOOLEAN | Gerant actif                     |
-
-### sessions
-| Colonne          | Type    | Description                |
-|------------------|---------|----------------------------|
-| id               | INTEGER | Cle primaire               |
-| user_id          | INTEGER | FK vers users              |
-| check_date       | DATE    | Date du check              |
-| current_question | INTEGER | Question en cours (0-5)    |
-| completed        | BOOLEAN | Session terminee           |
-
-### responses
-| Colonne      | Type    | Description                    |
-|--------------|---------|--------------------------------|
-| id           | INTEGER | Cle primaire                   |
-| user_id      | INTEGER | FK vers users                  |
-| check_date   | DATE    | Date du check                  |
-| station      | TEXT    | Station                        |
-| pompes_ok    | BOOLEAN | Pompes fonctionnelles          |
-| etat_ok      | BOOLEAN | Station propre/bon etat        |
-| monnaie_ok   | BOOLEAN | Monnaie suffisante             |
-| besoin_ok    | BOOLEAN | Pas de besoin materiel         |
-| incident_ok  | BOOLEAN | Pas d'incident                 |
-| confirmation | BOOLEAN | Confirmation des informations  |
-| status       | TEXT    | OK / PROBLEME                  |

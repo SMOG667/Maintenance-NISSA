@@ -1,4 +1,4 @@
-"""Script de test local - simule des interactions chatbot sans Twilio."""
+"""Script de test local - simule des interactions chatbot sans WhatsApp."""
 
 from app.database import init_db, SessionLocal
 from app.models import User, Question
@@ -11,7 +11,7 @@ init_db()
 db = SessionLocal()
 
 # Creer un utilisateur de test si necessaire
-test_phone = "whatsapp:+22799999999"
+test_phone = "+22799999999"
 user = db.query(User).filter(User.phone == test_phone).first()
 if not user:
     user = User(phone=test_phone, name="Test Gerant", station="Station Test", active=True)

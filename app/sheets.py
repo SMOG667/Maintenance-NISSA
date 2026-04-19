@@ -1,13 +1,10 @@
-"""Integration Google Sheets pour visualisation des donnees."""
+"""Integration Google Sheets pour visualisation des donnees (optionnel)."""
 
 import logging
 
-import gspread
-from google.oauth2.service_account import Credentials
 from sqlalchemy.orm import Session as DBSession
 
 from app.config import GOOGLE_SHEETS_ENABLED, GOOGLE_SHEETS_ID, GOOGLE_SERVICE_ACCOUNT_FILE
-from app.models import CheckSession, Answer, Question
 
 logger = logging.getLogger("nissa.sheets")
 
@@ -24,6 +21,9 @@ def get_sheet():
     if not GOOGLE_SHEETS_ENABLED:
         return None
 
+    import gspread
+    from google.oauth2.service_account import Credentials
+
     if _client is None:
         creds = Credentials.from_service_account_file(
             GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SCOPES
@@ -33,12 +33,15 @@ def get_sheet():
     return _client.open_by_key(GOOGLE_SHEETS_ID)
 
 
-def sync_response_dynamic(db: DBSession, session: CheckSession, user_name: str):
+def sync_response_dynamic(db: DBSession, session, user_name: str):
     """Synchronise un check vers Google Sheets."""
     if not GOOGLE_SHEETS_ENABLED:
         return
 
     try:
+        import gspread
+        from app.models import Answer, Question
+
         spreadsheet = get_sheet()
         if not spreadsheet:
             return
