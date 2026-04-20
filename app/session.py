@@ -36,6 +36,44 @@ EXPECT_TEXT = "text"        # Texte libre (pas de boutons)
 EXPECT_NONE = "none"        # Message final, pas de reponse attendue
 
 
+def find_user_by_phone(db: DBSession, phone: str) -> User | None:
+    """Cherche un utilisateur par numero de telephone.
+
+    Gere les differences de format entre Meta (sans 0 national)
+    et le stockage en base (avec 0 national).
+    Ex: Meta envoie +22586752574, base a +2250586752574
+    """
+    # Essai direct
+    user = db.query(User).filter(User.phone == phone, User.active == True).first()
+    if user:
+        return user
+
+    # Si le numero commence par +225 (Cote d'Ivoire), essayer avec le 0
+    if phone.startswith("+225") and len(phone) == 12:
+        # +22586752574 → +2250586752574
+        phone_with_zero = f"+2250{phone[4:]}"
+        user = db.query(User).filter(User.phone == phone_with_zero, User.active == True).first()
+        if user:
+            return user
+
+    # Si le numero a le 0, essayer sans
+    if phone.startswith("+2250"):
+        # +2250586752574 → +22586752574
+        phone_without_zero = f"+225{phone[5:]}"
+        user = db.query(User).filter(User.phone == phone_without_zero, User.active == True).first()
+        if user:
+            return user
+
+    # Essai generique : chercher la fin du numero
+    if len(phone) > 6:
+        suffix = phone[-8:]  # Les 8 derniers chiffres
+        users = db.query(User).filter(User.phone.endswith(suffix), User.active == True).all()
+        if len(users) == 1:
+            return users[0]
+
+    return None
+
+
 def normalize_response(text: str) -> bool | None:
     """Normalise la reponse utilisateur en booleen."""
     cleaned = text.strip().upper()
@@ -57,17 +95,19 @@ def format_question(question: Question, current: int, total: int) -> str:
 # ─── TRAITEMENT DES MESSAGES ENTRANTS ────────────────────────────────────────
 
 
-def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, str]:
+def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, str, str | None]:
     """Traite un message WhatsApp entrant.
 
-    Retourne (texte_reponse, response_type).
-    response_type: "buttons" (OUI/NON), "text" (texte libre), "none" (pas de reponse)
+    Retourne (texte_reponse, response_type, phone_from_db).
+    phone_from_db: le numero tel que stocke en base (pour l'envoi via Meta)
     """
 
-    user = db.query(User).filter(User.phone == phone, User.active == True).first()
+    user = find_user_by_phone(db, phone)
     if not user:
-        return (NO_USER_FOUND, EXPECT_NONE)
+        return (NO_USER_FOUND, EXPECT_NONE, None)
 
+    # Utiliser le phone stocke en base pour tous les retours
+    user_phone = user.phone
     today = date.today()
 
     session = (
@@ -92,13 +132,15 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, 
             .first()
         )
         if done_today:
-            return (ALREADY_COMPLETED, EXPECT_NONE)
+            return (ALREADY_COMPLETED, EXPECT_NONE, user_phone)
 
-        return start_check_for_user(db, user, check_type="quotidien")
+        text, rtype = start_check_for_user(db, user, check_type="quotidien")
+        return (text, rtype, user_phone)
 
     # ─── En attente d'une reponse de suivi (texte libre) ───
     if session.awaiting_followup:
-        return handle_followup_response(db, session, body)
+        text, rtype = handle_followup_response(db, session, body)
+        return (text, rtype, user_phone)
 
     # ─── En attente d'une reponse OUI/NON ───
     if not session.awaiting_answer:
@@ -106,12 +148,12 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, 
         db.commit()
         question_id = session.get_current_question_id()
         question = db.query(Question).get(question_id)
-        return (format_question(question, session.current_index + 1, session.total_questions()), EXPECT_BUTTONS)
+        return (format_question(question, session.current_index + 1, session.total_questions()), EXPECT_BUTTONS, user_phone)
 
     # Valider la reponse OUI/NON
     answer_value = normalize_response(body)
     if answer_value is None:
-        return (INVALID_RESPONSE, EXPECT_NONE)
+        return (INVALID_RESPONSE, EXPECT_NONE, user_phone)
 
     # Enregistrer la reponse
     question_id = session.get_current_question_id()
@@ -135,10 +177,11 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, 
             session.awaiting_answer = False
             session.awaiting_followup = True
             db.commit()
-            return (question.followup_text, EXPECT_TEXT)
+            return (question.followup_text, EXPECT_TEXT, user_phone)
 
     # Pas de suivi → avancer a la question suivante
-    return advance_to_next(db, session)
+    text, rtype = advance_to_next(db, session)
+    return (text, rtype, user_phone)
 
 
 def handle_followup_response(db: DBSession, session: CheckSession, text: str) -> tuple[str, str]:

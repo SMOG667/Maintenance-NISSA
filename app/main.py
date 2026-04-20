@@ -124,13 +124,16 @@ async def whatsapp_webhook(
 
                     logger.info(f"Message recu de {phone}: {text}")
 
-                    reply_text, resp_type = handle_incoming_message(db, phone, text)
+                    reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, text)
+
+                    # Utiliser le numero stocke en base (format valide Meta)
+                    target_phone = reply_phone or phone
 
                     # Envoyer la reponse selon le type
                     if resp_type == "buttons":
-                        send_question(phone, reply_text)
+                        send_question(target_phone, reply_text)
                     else:
-                        send_message(phone, reply_text)
+                        send_message(target_phone, reply_text)
 
                     # Sync Google Sheets si check complete
                     if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
@@ -235,16 +238,18 @@ async def debug_test_flow(
 ):
     """Simule la reception d'un message et montre le resultat."""
     try:
-        reply_text, resp_type = handle_incoming_message(db, phone, message)
+        reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, message)
+        target = reply_phone or phone
         # Tester l'envoi
         if resp_type == "buttons":
             from app.whatsapp import send_question as sq
-            send_result = sq(phone, reply_text)
+            send_result = sq(target, reply_text)
         else:
-            send_result = send_message(phone, reply_text)
+            send_result = send_message(target, reply_text)
         return {
             "reply": reply_text[:200],
             "resp_type": resp_type,
+            "target_phone": target,
             "send_result": send_result,
         }
     except Exception as e:
