@@ -144,6 +144,20 @@
                             <label>Ordre</label>
                             <input type="number" name="position" value="0" style="width:70px;">
                         </div>
+                    </div>
+                    <div class="form-row" style="margin-top:12px;">
+                        <div class="form-group">
+                            <label>Question de suivi si...</label>
+                            <select name="followup_trigger">
+                                <option value="">Pas de suivi</option>
+                                <option value="non">Si NON → poser une question</option>
+                                <option value="oui">Si OUI → poser une question</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Texte de la question de suivi</label>
+                            <input type="text" name="followup_text" placeholder="Ex: Precisez le probleme">
+                        </div>
                         <button type="submit" class="btn btn-primary">Ajouter</button>
                     </div>
                 </form>
@@ -156,7 +170,7 @@
                 {% if daily %}
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Statut</th><th>Actions</th></tr>
+                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Suivi</th><th>Statut</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {% for q in daily %}
@@ -164,10 +178,11 @@
                             <td>{{ q.position }}</td>
                             <td>{{ q.text }}</td>
                             <td>{{ q.problem_type or '-' }}</td>
+                            <td>{% if q.followup_trigger %}Si {{ q.followup_trigger|upper }} → {{ q.followup_text[:30] if q.followup_text else '?' }}{% else %}-{% endif %}</td>
                             <td><span class="badge {{ 'active' if q.active else 'inactive' }}">{{ 'Actif' if q.active else 'Inactif' }}</span></td>
                             <td>
                                 <div class="actions">
-                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }})">Modifier</button>
+                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }}, '{{ q.followup_trigger or '' }}', '{{ q.followup_text|e if q.followup_text else '' }}')">Modifier</button>
                                     <form method="POST" action="/admin/questions/{{ q.id }}/toggle" style="display:inline;">
                                         <button type="submit" class="btn btn-warning btn-sm">{{ "Desactiver" if q.active else "Activer" }}</button>
                                     </form>
@@ -192,7 +207,7 @@
                 {% if occasional %}
                 <table>
                     <thead>
-                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Statut</th><th>Actions</th></tr>
+                        <tr><th>#</th><th>Question</th><th>Type probleme</th><th>Suivi</th><th>Statut</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                         {% for q in occasional %}
@@ -200,10 +215,11 @@
                             <td>{{ q.position }}</td>
                             <td>{{ q.text }}</td>
                             <td>{{ q.problem_type or '-' }}</td>
+                            <td>{% if q.followup_trigger %}Si {{ q.followup_trigger|upper }} → {{ q.followup_text[:30] if q.followup_text else '?' }}{% else %}-{% endif %}</td>
                             <td><span class="badge {{ 'active' if q.active else 'inactive' }}">{{ 'Actif' if q.active else 'Inactif' }}</span></td>
                             <td>
                                 <div class="actions">
-                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }})">Modifier</button>
+                                    <button class="btn btn-outline btn-sm" onclick="openEditQuestion({{ q.id }}, '{{ q.text|e }}', '{{ q.problem_type or '' }}', '{{ q.problem_label or '' }}', '{{ q.schedule_type }}', {{ q.position }}, '{{ q.followup_trigger or '' }}', '{{ q.followup_text|e if q.followup_text else '' }}')">Modifier</button>
                                     <form method="POST" action="/admin/questions/{{ q.id }}/toggle" style="display:inline;">
                                         <button type="submit" class="btn btn-warning btn-sm">{{ "Desactiver" if q.active else "Activer" }}</button>
                                     </form>
@@ -551,6 +567,18 @@
                     <label>Ordre</label>
                     <input type="number" name="position" id="editQPosition">
                 </div>
+                <div class="form-group">
+                    <label>Question de suivi si...</label>
+                    <select name="followup_trigger" id="editQFollowupTrigger">
+                        <option value="">Pas de suivi</option>
+                        <option value="non">Si NON</option>
+                        <option value="oui">Si OUI</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Texte de la question de suivi</label>
+                    <input type="text" name="followup_text" id="editQFollowupText" placeholder="Ex: Precisez le probleme">
+                </div>
                 <div class="modal-actions">
                     <button type="button" class="btn btn-outline" onclick="closeModal('editQuestionModal')">Annuler</button>
                     <button type="submit" class="btn btn-primary">Enregistrer</button>
@@ -582,13 +610,15 @@
             document.getElementById('editUserModal').classList.add('show');
         }
 
-        function openEditQuestion(id, text, type, label, schedule, position) {
+        function openEditQuestion(id, text, type, label, schedule, position, followupTrigger, followupText) {
             document.getElementById('editQuestionForm').action = '/admin/questions/' + id + '/edit';
             document.getElementById('editQText').value = text;
             document.getElementById('editQType').value = type;
             document.getElementById('editQLabel').value = label;
             document.getElementById('editQSchedule').value = schedule;
             document.getElementById('editQPosition').value = position;
+            document.getElementById('editQFollowupTrigger').value = followupTrigger || '';
+            document.getElementById('editQFollowupText').value = followupText || '';
             document.getElementById('editQuestionModal').classList.add('show');
         }
 

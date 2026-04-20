@@ -24,11 +24,17 @@ class Question(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     text: Mapped[str] = mapped_column(Text)
-    problem_type: Mapped[str | None] = mapped_column(String, nullable=True)  # maintenance, exploitation, etc.
+    problem_type: Mapped[str | None] = mapped_column(String, nullable=True)
     problem_label: Mapped[str | None] = mapped_column(String, nullable=True)
-    schedule_type: Mapped[str] = mapped_column(String, default="quotidien")  # quotidien / occasionnel
+    schedule_type: Mapped[str] = mapped_column(String, default="quotidien")
     position: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Question de suivi conditionnelle
+    # followup_trigger: "oui" ou "non" — quelle reponse declenche le suivi
+    # followup_text: la question de suivi (texte libre attendu)
+    followup_trigger: Mapped[str | None] = mapped_column(String, nullable=True)
+    followup_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     answers: Mapped[list["Answer"]] = relationship(back_populates="question")
 
@@ -40,25 +46,24 @@ class CheckSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     check_date: Mapped[date] = mapped_column(Date, default=date.today)
-    check_type: Mapped[str] = mapped_column(String, default="quotidien")  # quotidien / occasionnel
-    question_ids: Mapped[str] = mapped_column(String)  # "1,3,5,7" - IDs des questions a poser
-    current_index: Mapped[int] = mapped_column(Integer, default=0)  # index dans question_ids
+    check_type: Mapped[str] = mapped_column(String, default="quotidien")
+    question_ids: Mapped[str] = mapped_column(String)
+    current_index: Mapped[int] = mapped_column(Integer, default=0)
     awaiting_answer: Mapped[bool] = mapped_column(Boolean, default=False)
+    awaiting_followup: Mapped[bool] = mapped_column(Boolean, default=False)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str | None] = mapped_column(String, nullable=True)  # OK / PROBLEME
+    status: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
     answers: Mapped[list["Answer"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
     def get_question_id_list(self) -> list[int]:
-        """Retourne la liste des IDs de questions."""
         if not self.question_ids:
             return []
         return [int(x) for x in self.question_ids.split(",")]
 
     def get_current_question_id(self) -> int | None:
-        """Retourne l'ID de la question courante."""
         ids = self.get_question_id_list()
         if self.current_index < len(ids):
             return ids[self.current_index]
@@ -69,13 +74,14 @@ class CheckSession(Base):
 
 
 class Answer(Base):
-    """Reponse OUI/NON a une question specifique."""
+    """Reponse a une question."""
     __tablename__ = "answers"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(ForeignKey("check_sessions.id"))
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"))
     answer: Mapped[bool] = mapped_column(Boolean)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # Reponse texte libre (suivi)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
     session: Mapped["CheckSession"] = relationship(back_populates="answers")

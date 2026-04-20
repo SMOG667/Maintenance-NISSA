@@ -1,10 +1,11 @@
 """Logique de session chatbot.
 
-Deux flux :
-1. QUOTIDIEN : le cron cree la session + envoie le greeting + question 1.
-   Le gerant repond OUI/NON (boutons interactifs), le chatbot enchaine.
-2. OCCASIONNEL : l'admin declenche un check ponctuel depuis le panneau.
-   Meme flux conversationnel, mais avec un sous-ensemble de questions.
+Flux de conversation :
+1. Question OUI/NON (boutons interactifs)
+2. Si la question a un followup_trigger qui correspond a la reponse :
+   → Pose une question de suivi (reponse texte libre)
+   → Stocke le commentaire dans answer.comment
+3. Passe a la question suivante
 """
 
 import logging
@@ -29,6 +30,11 @@ from app.config import ASSISTANT_WHATSAPP_NUMBER
 
 logger = logging.getLogger("nissa.session")
 
+# Types de reponse attendue
+EXPECT_BUTTONS = "buttons"  # OUI/NON avec boutons
+EXPECT_TEXT = "text"        # Texte libre (pas de boutons)
+EXPECT_NONE = "none"        # Message final, pas de reponse attendue
+
 
 def normalize_response(text: str) -> bool | None:
     """Normalise la reponse utilisateur en booleen."""
@@ -41,7 +47,6 @@ def normalize_response(text: str) -> bool | None:
 
 
 def format_question(question: Question, current: int, total: int) -> str:
-    """Formate une question pour l'affichage chatbot."""
     return QUESTION_FORMAT.format(
         current=current,
         total=total,
@@ -52,21 +57,19 @@ def format_question(question: Question, current: int, total: int) -> str:
 # ─── TRAITEMENT DES MESSAGES ENTRANTS ────────────────────────────────────────
 
 
-def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, bool]:
+def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, str]:
     """Traite un message WhatsApp entrant.
 
-    Retourne un tuple (texte_reponse, is_question).
-    is_question=True signifie qu'il faut envoyer avec des boutons OUI/NON.
+    Retourne (texte_reponse, response_type).
+    response_type: "buttons" (OUI/NON), "text" (texte libre), "none" (pas de reponse)
     """
 
-    # Identifier l'utilisateur
     user = db.query(User).filter(User.phone == phone, User.active == True).first()
     if not user:
-        return (NO_USER_FOUND, False)
+        return (NO_USER_FOUND, EXPECT_NONE)
 
     today = date.today()
 
-    # Chercher une session active (non terminee) pour aujourd'hui
     session = (
         db.query(CheckSession)
         .filter(
@@ -77,9 +80,8 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, 
         .first()
     )
 
-    # Pas de session active → l'utilisateur ecrit en premier, on demarre un check quotidien
+    # Pas de session active → demarrer un check quotidien
     if not session:
-        # Verifier si un check quotidien est deja termine aujourd'hui
         done_today = (
             db.query(CheckSession)
             .filter(
@@ -90,45 +92,90 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, 
             .first()
         )
         if done_today:
-            return (ALREADY_COMPLETED, False)
+            return (ALREADY_COMPLETED, EXPECT_NONE)
 
         return start_check_for_user(db, user, check_type="quotidien")
 
-    # Session active, on attend une reponse
+    # ─── En attente d'une reponse de suivi (texte libre) ───
+    if session.awaiting_followup:
+        return handle_followup_response(db, session, body)
+
+    # ─── En attente d'une reponse OUI/NON ───
     if not session.awaiting_answer:
-        # Relancer la question courante
         session.awaiting_answer = True
         db.commit()
         question_id = session.get_current_question_id()
         question = db.query(Question).get(question_id)
-        return (format_question(question, session.current_index + 1, session.total_questions()), True)
+        return (format_question(question, session.current_index + 1, session.total_questions()), EXPECT_BUTTONS)
 
     # Valider la reponse OUI/NON
     answer_value = normalize_response(body)
     if answer_value is None:
-        return (INVALID_RESPONSE, False)
+        return (INVALID_RESPONSE, EXPECT_NONE)
 
     # Enregistrer la reponse
     question_id = session.get_current_question_id()
+    question = db.query(Question).get(question_id)
+
     answer = Answer(
         session_id=session.id,
         question_id=question_id,
         answer=answer_value,
     )
     db.add(answer)
+    db.flush()
 
-    # Avancer a la question suivante
-    session.current_index += 1
+    # Verifier si un suivi est declenche
+    if question.followup_trigger and question.followup_text:
+        trigger_value = question.followup_trigger.lower().strip()
+        answer_matches = (trigger_value == "oui" and answer_value) or (trigger_value == "non" and not answer_value)
+
+        if answer_matches:
+            # Passer en mode suivi
+            session.awaiting_answer = False
+            session.awaiting_followup = True
+            db.commit()
+            return (question.followup_text, EXPECT_TEXT)
+
+    # Pas de suivi → avancer a la question suivante
+    return advance_to_next(db, session)
+
+
+def handle_followup_response(db: DBSession, session: CheckSession, text: str) -> tuple[str, str]:
+    """Traite la reponse texte libre d'une question de suivi."""
+
+    # Trouver la derniere reponse (celle qui a declenche le suivi)
+    last_answer = (
+        db.query(Answer)
+        .filter(Answer.session_id == session.id)
+        .order_by(Answer.id.desc())
+        .first()
+    )
+
+    if last_answer:
+        last_answer.comment = text.strip()
+
+    session.awaiting_followup = False
     db.commit()
 
-    # Toutes les questions posees ?
-    if session.current_index >= session.total_questions():
-        return (complete_check(db, user, session), False)
+    # Avancer a la question suivante
+    return advance_to_next(db, session)
 
-    # Poser la question suivante (avec boutons)
+
+def advance_to_next(db: DBSession, session: CheckSession) -> tuple[str, str]:
+    """Avance a la question suivante ou termine le check."""
+    user = db.query(User).get(session.user_id)
+
+    session.current_index += 1
+    session.awaiting_answer = True
+    db.commit()
+
+    if session.current_index >= session.total_questions():
+        return (complete_check(db, user, session), EXPECT_NONE)
+
     next_question_id = session.get_current_question_id()
     next_question = db.query(Question).get(next_question_id)
-    return (format_question(next_question, session.current_index + 1, session.total_questions()), True)
+    return (format_question(next_question, session.current_index + 1, session.total_questions()), EXPECT_BUTTONS)
 
 
 # ─── DEMARRAGE D'UN CHECK ────────────────────────────────────────────────────
@@ -139,12 +186,7 @@ def start_check_for_user(
     user: User,
     check_type: str = "quotidien",
     question_ids: list[int] | None = None,
-) -> tuple[str, bool]:
-    """Demarre un check chatbot pour un gerant.
-
-    Retourne (greeting + premiere question, True) car la premiere question
-    doit etre envoyee avec des boutons.
-    """
+) -> tuple[str, str]:
     if question_ids is None:
         questions = (
             db.query(Question)
@@ -163,9 +205,8 @@ def start_check_for_user(
         question_ids = [q.id for q in questions]
 
     if not question_ids:
-        return ("Aucune question configuree pour ce type de check.", False)
+        return ("Aucune question configuree pour ce type de check.", EXPECT_NONE)
 
-    # Creer la session
     session = CheckSession(
         user_id=user.id,
         check_date=date.today(),
@@ -177,7 +218,6 @@ def start_check_for_user(
     db.add(session)
     db.commit()
 
-    # Construire le message
     total = len(question_ids)
     if check_type == "quotidien":
         greeting = GREETING_DAILY.format(name=user.name, station=user.station, total=total)
@@ -187,26 +227,19 @@ def start_check_for_user(
     first_question = db.query(Question).get(question_ids[0])
     question_text = format_question(first_question, 1, total)
 
-    # On envoie le greeting en texte, puis la question avec boutons separement
-    return (f"{greeting}\n\n{question_text}", True)
+    return (f"{greeting}\n\n{question_text}", EXPECT_BUTTONS)
 
 
 # ─── FINALISATION D'UN CHECK ─────────────────────────────────────────────────
 
 
 def complete_check(db: DBSession, user: User, session: CheckSession) -> str:
-    """Finalise un check : determine le statut et envoie les alertes."""
     session.completed = True
     session.awaiting_answer = False
+    session.awaiting_followup = False
 
-    # Charger les reponses avec les questions
-    answers = (
-        db.query(Answer)
-        .filter(Answer.session_id == session.id)
-        .all()
-    )
+    answers = db.query(Answer).filter(Answer.session_id == session.id).all()
 
-    # Trouver les problemes (reponse NON sur une question avec problem_type)
     problems = []
     all_ok = True
 
@@ -214,9 +247,12 @@ def complete_check(db: DBSession, user: User, session: CheckSession) -> str:
         question = db.query(Question).get(ans.question_id)
         if ans.answer is False and question.problem_type is not None:
             all_ok = False
+            label = question.problem_label or question.text
+            if ans.comment:
+                label += f" — {ans.comment}"
             problems.append({
                 "type": question.problem_type,
-                "label": question.problem_label or question.text,
+                "label": label,
             })
         elif ans.answer is False:
             all_ok = False
@@ -230,7 +266,6 @@ def complete_check(db: DBSession, user: User, session: CheckSession) -> str:
 
     problems_text = "\n".join(f"- [{p['type'].upper()}] {p['label']}" for p in problems)
 
-    # Envoyer alerte a l'assistante
     send_alert(user, session, problems)
 
     logger.warning(f"PROBLEME detecte pour {user.station}: {problems_text}")
@@ -246,7 +281,6 @@ def complete_check(db: DBSession, user: User, session: CheckSession) -> str:
 
 
 def send_alert(user: User, session: CheckSession, problems: list[dict]):
-    """Envoie une alerte WhatsApp a l'assistante."""
     if not ASSISTANT_WHATSAPP_NUMBER:
         logger.warning("Pas de numero assistante configure, alerte non envoyee")
         return
@@ -270,15 +304,9 @@ def send_alert(user: User, session: CheckSession, problems: list[dict]):
 
 
 def start_daily_check(db: DBSession):
-    """Envoie le check journalier automatique a tous les gerants actifs.
-
-    Appele par le cron chaque jour. Cree une session chatbot par gerant
-    et envoie le greeting en texte + premiere question avec boutons.
-    """
     users = db.query(User).filter(User.active == True).all()
     logger.info(f"Lancement check journalier pour {len(users)} gerants")
 
-    # Questions quotidiennes actives
     daily_questions = (
         db.query(Question)
         .filter(Question.schedule_type == "quotidien", Question.active == True)
@@ -294,7 +322,6 @@ def start_daily_check(db: DBSession):
     today = date.today()
 
     for user in users:
-        # Verifier si deja un check aujourd'hui
         existing = (
             db.query(CheckSession)
             .filter(
@@ -307,11 +334,9 @@ def start_daily_check(db: DBSession):
             logger.info(f"Check deja en cours/termine pour {user.name}, ignore")
             continue
 
-        # Demarrer le check
-        message, is_question = start_check_for_user(db, user, "quotidien", question_ids)
+        message, resp_type = start_check_for_user(db, user, "quotidien", question_ids)
 
-        # Envoyer avec boutons si c'est une question
-        if is_question:
+        if resp_type == EXPECT_BUTTONS:
             send_question(user.phone, message)
         else:
             send_message(user.phone, message)
@@ -323,16 +348,15 @@ def start_daily_check(db: DBSession):
 
 
 def start_occasional_check(db: DBSession, user_ids: list[int], question_ids: list[int]):
-    """Lance un check occasionnel pour des gerants specifiques."""
     users = db.query(User).filter(User.id.in_(user_ids), User.active == True).all()
     logger.info(
         f"Lancement check occasionnel: {len(users)} gerants, {len(question_ids)} questions"
     )
 
     for user in users:
-        message, is_question = start_check_for_user(db, user, "occasionnel", question_ids)
+        message, resp_type = start_check_for_user(db, user, "occasionnel", question_ids)
 
-        if is_question:
+        if resp_type == EXPECT_BUTTONS:
             send_question(user.phone, message)
         else:
             send_message(user.phone, message)

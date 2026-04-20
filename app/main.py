@@ -108,10 +108,10 @@ async def whatsapp_webhook(
 
                     logger.info(f"Message recu de {phone}: {text}")
 
-                    reply_text, is_question = handle_incoming_message(db, phone, text)
+                    reply_text, resp_type = handle_incoming_message(db, phone, text)
 
-                    # Envoyer la reponse : boutons si c'est une question, texte sinon
-                    if is_question:
+                    # Envoyer la reponse selon le type
+                    if resp_type == "buttons":
                         send_question(phone, reply_text)
                     else:
                         send_message(phone, reply_text)
@@ -361,6 +361,8 @@ async def admin_add_question(
     problem_label: str = Form(""),
     schedule_type: str = Form("quotidien"),
     position: int = Form(0),
+    followup_trigger: str = Form(""),
+    followup_text: str = Form(""),
     db: DBSession = Depends(get_db),
 ):
     question = Question(
@@ -370,6 +372,8 @@ async def admin_add_question(
         schedule_type=schedule_type,
         position=position,
         active=True,
+        followup_trigger=followup_trigger.strip() or None,
+        followup_text=followup_text.strip() or None,
     )
     db.add(question)
     db.commit()
@@ -385,6 +389,8 @@ async def admin_edit_question(
     problem_label: str = Form(""),
     schedule_type: str = Form("quotidien"),
     position: int = Form(0),
+    followup_trigger: str = Form(""),
+    followup_text: str = Form(""),
     db: DBSession = Depends(get_db),
 ):
     question = db.query(Question).filter(Question.id == question_id).first()
@@ -394,6 +400,8 @@ async def admin_edit_question(
     question.text = text.strip()
     question.problem_type = problem_type.strip() or None
     question.problem_label = problem_label.strip() or None
+    question.followup_trigger = followup_trigger.strip() or None
+    question.followup_text = followup_text.strip() or None
     question.schedule_type = schedule_type
     question.position = position
     db.commit()
