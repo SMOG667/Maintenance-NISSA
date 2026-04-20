@@ -257,6 +257,16 @@ async def debug_test_flow(
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 
+@app.get("/debug/reset-sessions")
+async def debug_reset_sessions(db: DBSession = Depends(get_db)):
+    """Supprime toutes les sessions actives (non terminees)."""
+    from sqlalchemy import text
+    db.execute(text("DELETE FROM answers WHERE session_id IN (SELECT id FROM check_sessions WHERE completed = false)"))
+    db.execute(text("DELETE FROM check_sessions WHERE completed = false"))
+    db.commit()
+    return {"status": "OK", "message": "Sessions actives supprimees"}
+
+
 @app.get("/debug/test-send")
 async def debug_test_send():
     """Teste l'envoi d'un message WhatsApp."""
