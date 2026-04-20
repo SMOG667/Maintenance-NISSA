@@ -139,12 +139,47 @@ async def debug_info(db: DBSession = Depends(get_db)):
     except Exception as e:
         db_status = f"ERREUR: {e}"
 
+    # Verifier si les tables existent
+    tables_ok = False
+    user_count = 0
+    try:
+        user_count = db.query(User).count()
+        tables_ok = True
+    except Exception as e:
+        tables_ok = f"ERREUR: {e}"
+
     return {
         "db_status": db_status,
+        "tables_ok": tables_ok,
+        "user_count": user_count,
         "db_url_prefix": (os.getenv("DATABASE_URL", "")[:50] + "...") if os.getenv("DATABASE_URL") else "NON DEFINI",
         "whatsapp_token_set": bool(os.getenv("WHATSAPP_TOKEN")),
         "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "NON DEFINI"),
     }
+
+
+@app.get("/debug/init")
+async def debug_init_db(db: DBSession = Depends(get_db)):
+    """Initialise les tables dans la base de donnees."""
+    try:
+        init_db()
+        user_count = db.query(User).count()
+        question_count = db.query(Question).count()
+        return {
+            "status": "OK",
+            "tables_created": True,
+            "users": user_count,
+            "questions": question_count,
+        }
+    except Exception as e:
+        return {"status": f"ERREUR: {e}"}
+
+
+@app.get("/debug/test-send")
+async def debug_test_send():
+    """Teste l'envoi d'un message WhatsApp."""
+    result = send_message("+2250586752574", "Test Nissa - le chatbot fonctionne !")
+    return {"message_sent": result}
 
 
 # ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
