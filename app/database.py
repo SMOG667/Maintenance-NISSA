@@ -1,14 +1,22 @@
+import logging
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 from app.config import DATABASE_URL
+
+logger = logging.getLogger("nissa.database")
 
 # Support SQLite (local) et PostgreSQL (Supabase)
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -25,5 +33,9 @@ def get_db():
 
 
 def init_db():
-    from app.models import User, Question, CheckSession, Answer  # noqa: F401
-    Base.metadata.create_all(bind=engine)
+    try:
+        from app.models import User, Question, CheckSession, Answer  # noqa: F401
+        Base.metadata.create_all(bind=engine)
+        logger.info("Base de donnees initialisee")
+    except Exception as e:
+        logger.error(f"Erreur initialisation DB: {e}")
