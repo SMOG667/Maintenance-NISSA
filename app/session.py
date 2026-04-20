@@ -2,11 +2,9 @@
 
 Deux flux :
 1. QUOTIDIEN : le cron cree la session + envoie le greeting + question 1.
-   Le gerant repond OUI/NON, le chatbot enchaine les questions.
+   Le gerant repond OUI/NON (boutons interactifs), le chatbot enchaine.
 2. OCCASIONNEL : l'admin declenche un check ponctuel depuis le panneau.
    Meme flux conversationnel, mais avec un sous-ensemble de questions.
-
-Dans les deux cas, c'est un chatbot : question par question, reponse OUI/NON.
 """
 
 import logging
@@ -26,7 +24,7 @@ from app.questions import (
     NO_USER_FOUND,
     ALERT_MESSAGE,
 )
-from app.whatsapp import send_message
+from app.whatsapp import send_message, send_question
 from app.config import ASSISTANT_WHATSAPP_NUMBER
 
 logger = logging.getLogger("nissa.session")
@@ -54,13 +52,17 @@ def format_question(question: Question, current: int, total: int) -> str:
 # ─── TRAITEMENT DES MESSAGES ENTRANTS ────────────────────────────────────────
 
 
-def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
-    """Traite un message WhatsApp entrant et retourne la reponse du chatbot."""
+def handle_incoming_message(db: DBSession, phone: str, body: str) -> tuple[str, bool]:
+    """Traite un message WhatsApp entrant.
+
+    Retourne un tuple (texte_reponse, is_question).
+    is_question=True signifie qu'il faut envoyer avec des boutons OUI/NON.
+    """
 
     # Identifier l'utilisateur
     user = db.query(User).filter(User.phone == phone, User.active == True).first()
     if not user:
-        return NO_USER_FOUND
+        return (NO_USER_FOUND, False)
 
     today = date.today()
 
@@ -88,7 +90,7 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
             .first()
         )
         if done_today:
-            return ALREADY_COMPLETED
+            return (ALREADY_COMPLETED, False)
 
         return start_check_for_user(db, user, check_type="quotidien")
 
@@ -99,12 +101,12 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
         db.commit()
         question_id = session.get_current_question_id()
         question = db.query(Question).get(question_id)
-        return format_question(question, session.current_index + 1, session.total_questions())
+        return (format_question(question, session.current_index + 1, session.total_questions()), True)
 
     # Valider la reponse OUI/NON
     answer_value = normalize_response(body)
     if answer_value is None:
-        return INVALID_RESPONSE
+        return (INVALID_RESPONSE, False)
 
     # Enregistrer la reponse
     question_id = session.get_current_question_id()
@@ -121,12 +123,12 @@ def handle_incoming_message(db: DBSession, phone: str, body: str) -> str:
 
     # Toutes les questions posees ?
     if session.current_index >= session.total_questions():
-        return complete_check(db, user, session)
+        return (complete_check(db, user, session), False)
 
-    # Poser la question suivante
+    # Poser la question suivante (avec boutons)
     next_question_id = session.get_current_question_id()
     next_question = db.query(Question).get(next_question_id)
-    return format_question(next_question, session.current_index + 1, session.total_questions())
+    return (format_question(next_question, session.current_index + 1, session.total_questions()), True)
 
 
 # ─── DEMARRAGE D'UN CHECK ────────────────────────────────────────────────────
@@ -137,15 +139,11 @@ def start_check_for_user(
     user: User,
     check_type: str = "quotidien",
     question_ids: list[int] | None = None,
-) -> str:
+) -> tuple[str, bool]:
     """Demarre un check chatbot pour un gerant.
 
-    Args:
-        check_type: "quotidien" ou "occasionnel"
-        question_ids: liste d'IDs de questions. Si None, prend les questions actives du type.
-
-    Returns:
-        Le message greeting + premiere question a envoyer.
+    Retourne (greeting + premiere question, True) car la premiere question
+    doit etre envoyee avec des boutons.
     """
     if question_ids is None:
         questions = (
@@ -165,7 +163,7 @@ def start_check_for_user(
         question_ids = [q.id for q in questions]
 
     if not question_ids:
-        return "Aucune question configuree pour ce type de check."
+        return ("Aucune question configuree pour ce type de check.", False)
 
     # Creer la session
     session = CheckSession(
@@ -189,7 +187,8 @@ def start_check_for_user(
     first_question = db.query(Question).get(question_ids[0])
     question_text = format_question(first_question, 1, total)
 
-    return f"{greeting}\n\n{question_text}"
+    # On envoie le greeting en texte, puis la question avec boutons separement
+    return (f"{greeting}\n\n{question_text}", True)
 
 
 # ─── FINALISATION D'UN CHECK ─────────────────────────────────────────────────
@@ -274,7 +273,7 @@ def start_daily_check(db: DBSession):
     """Envoie le check journalier automatique a tous les gerants actifs.
 
     Appele par le cron chaque jour. Cree une session chatbot par gerant
-    et envoie le greeting + premiere question.
+    et envoie le greeting en texte + premiere question avec boutons.
     """
     users = db.query(User).filter(User.active == True).all()
     logger.info(f"Lancement check journalier pour {len(users)} gerants")
@@ -308,9 +307,15 @@ def start_daily_check(db: DBSession):
             logger.info(f"Check deja en cours/termine pour {user.name}, ignore")
             continue
 
-        # Demarrer le check et envoyer le message
-        message = start_check_for_user(db, user, "quotidien", question_ids)
-        send_message(user.phone, message)
+        # Demarrer le check
+        message, is_question = start_check_for_user(db, user, "quotidien", question_ids)
+
+        # Envoyer avec boutons si c'est une question
+        if is_question:
+            send_question(user.phone, message)
+        else:
+            send_message(user.phone, message)
+
         logger.info(f"Check journalier envoye a {user.name} ({user.station})")
 
 
@@ -318,19 +323,20 @@ def start_daily_check(db: DBSession):
 
 
 def start_occasional_check(db: DBSession, user_ids: list[int], question_ids: list[int]):
-    """Lance un check occasionnel pour des gerants specifiques.
-
-    Appele depuis le panneau admin. Envoie les questions selectionnees
-    aux gerants selectionnes via le chatbot.
-    """
+    """Lance un check occasionnel pour des gerants specifiques."""
     users = db.query(User).filter(User.id.in_(user_ids), User.active == True).all()
     logger.info(
         f"Lancement check occasionnel: {len(users)} gerants, {len(question_ids)} questions"
     )
 
     for user in users:
-        message = start_check_for_user(db, user, "occasionnel", question_ids)
-        send_message(user.phone, message)
+        message, is_question = start_check_for_user(db, user, "occasionnel", question_ids)
+
+        if is_question:
+            send_question(user.phone, message)
+        else:
+            send_message(user.phone, message)
+
         logger.info(f"Check occasionnel envoye a {user.name} ({user.station})")
 
     return len(users)

@@ -15,7 +15,7 @@ from app.database import get_db, init_db
 from app.models import User, Question, CheckSession, Answer
 from app.session import handle_incoming_message, start_daily_check, start_occasional_check
 from app.sheets import sync_response_dynamic
-from app.whatsapp import send_message
+from app.whatsapp import send_message, send_question
 from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, WHATSAPP_VERIFY_TOKEN
 
 # Logging
@@ -85,22 +85,33 @@ async def whatsapp_webhook(
                 messages = value.get("messages", [])
 
                 for msg in messages:
-                    if msg.get("type") != "text":
-                        continue
+                    msg_type = msg.get("type")
 
-                    # Extraire le numero et le texte
+                    # Extraire le numero et le texte selon le type de message
                     sender = msg["from"]  # Format: 22790000000 (sans +)
-                    text = msg["text"]["body"]
-
-                    # Convertir au format stocke en base (+22790000000)
                     phone = f"+{sender}"
+
+                    if msg_type == "text":
+                        text = msg["text"]["body"]
+                    elif msg_type == "interactive":
+                        # Reponse a un bouton (OUI/NON)
+                        interactive = msg.get("interactive", {})
+                        if interactive.get("type") == "button_reply":
+                            text = interactive["button_reply"]["id"]  # "oui" ou "non"
+                        else:
+                            continue
+                    else:
+                        continue
 
                     logger.info(f"Message recu de {phone}: {text}")
 
-                    reply_text = handle_incoming_message(db, phone, text)
+                    reply_text, is_question = handle_incoming_message(db, phone, text)
 
-                    # Envoyer la reponse via l'API Meta
-                    send_message(phone, reply_text)
+                    # Envoyer la reponse : boutons si c'est une question, texte sinon
+                    if is_question:
+                        send_question(phone, reply_text)
+                    else:
+                        send_message(phone, reply_text)
 
                     # Sync Google Sheets si check complete
                     if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):

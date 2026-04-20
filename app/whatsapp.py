@@ -21,13 +21,16 @@ def _normalize_phone(phone: str) -> str:
     return phone
 
 
-def send_message(to: str, body: str) -> dict:
-    """Envoie un message WhatsApp via Meta Cloud API.
-
-    Retourne un dict avec le resultat (pour debug).
-    """
+def _get_api_config():
+    """Recupere le token et phone_id depuis les variables d'env."""
     token = os.getenv("WHATSAPP_TOKEN")
     phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
+    return token, phone_id
+
+
+def _send_payload(recipient: str, payload: dict) -> dict:
+    """Envoie un payload a l'API Meta WhatsApp."""
+    token, phone_id = _get_api_config()
 
     if not token or not phone_id:
         error = f"Config manquante: token={'OK' if token else 'MANQUANT'}, phone_id={'OK' if phone_id else 'MANQUANT'}"
@@ -35,17 +38,9 @@ def send_message(to: str, body: str) -> dict:
         return {"success": False, "error": error}
 
     url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
-    recipient = _normalize_phone(to)
-
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
-    }
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": recipient,
-        "type": "text",
-        "text": {"body": body},
     }
 
     try:
@@ -62,5 +57,55 @@ def send_message(to: str, body: str) -> dict:
             return {"success": True, "message_id": msg_id}
 
     except Exception as e:
-        logger.error(f"Erreur envoi message a {to}: {e}")
+        logger.error(f"Erreur envoi message a {recipient}: {e}")
         return {"success": False, "error": str(e)}
+
+
+def send_message(to: str, body: str) -> dict:
+    """Envoie un message texte simple."""
+    recipient = _normalize_phone(to)
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "text",
+        "text": {"body": body},
+    }
+    return _send_payload(recipient, payload)
+
+
+def send_buttons(to: str, body: str, buttons: list[dict]) -> dict:
+    """Envoie un message avec des boutons interactifs.
+
+    Args:
+        to: numero du destinataire
+        body: texte de la question
+        buttons: liste de {"id": "oui", "title": "OUI"}
+    """
+    recipient = _normalize_phone(to)
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": recipient,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": body},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
+                    for btn in buttons
+                ]
+            },
+        },
+    }
+    return _send_payload(recipient, payload)
+
+
+OUI_NON_BUTTONS = [
+    {"id": "oui", "title": "OUI"},
+    {"id": "non", "title": "NON"},
+]
+
+
+def send_question(to: str, body: str) -> dict:
+    """Envoie une question avec les boutons OUI / NON."""
+    return send_buttons(to, body, OUI_NON_BUTTONS)
