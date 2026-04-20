@@ -67,6 +67,16 @@ async def whatsapp_verify(
     return PlainTextResponse(content="Forbidden", status_code=403)
 
 
+# Stocke les derniers webhooks recus pour debug
+_last_webhooks = []
+
+
+@app.get("/debug/webhooks")
+async def debug_webhooks():
+    """Affiche les derniers webhooks recus."""
+    return {"count": len(_last_webhooks), "webhooks": _last_webhooks[-10:]}
+
+
 @app.post("/webhook")
 async def whatsapp_webhook(
     request: Request,
@@ -75,6 +85,12 @@ async def whatsapp_webhook(
     """Endpoint webhook pour recevoir les messages WhatsApp via Meta Cloud API."""
     try:
         body = await request.json()
+
+        # Log le webhook recu pour debug
+        import json
+        _last_webhooks.append(json.loads(json.dumps(body, default=str)))
+        if len(_last_webhooks) > 20:
+            _last_webhooks.pop(0)
 
         # Meta envoie des notifications de statut (sent, delivered, read) qu'on ignore
         entry = body.get("entry", [])
