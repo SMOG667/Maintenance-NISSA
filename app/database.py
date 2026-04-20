@@ -11,6 +11,8 @@ logger = logging.getLogger("nissa.database")
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+elif DATABASE_URL.startswith("postgresql"):
+    connect_args = {"sslmode": "require"}
 
 engine = create_engine(
     DATABASE_URL,
