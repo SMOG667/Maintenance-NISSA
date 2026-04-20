@@ -259,12 +259,23 @@ async def debug_test_flow(
 
 @app.get("/debug/reset-sessions")
 async def debug_reset_sessions(db: DBSession = Depends(get_db)):
-    """Supprime toutes les sessions actives (non terminees)."""
+    """Supprime toutes les sessions et reponses."""
     from sqlalchemy import text
-    db.execute(text("DELETE FROM answers WHERE session_id IN (SELECT id FROM check_sessions WHERE completed = false)"))
-    db.execute(text("DELETE FROM check_sessions WHERE completed = false"))
+    db.execute(text("DELETE FROM answers"))
+    db.execute(text("DELETE FROM check_sessions"))
     db.commit()
-    return {"status": "OK", "message": "Sessions actives supprimees"}
+    return {"status": "OK", "message": "Toutes les sessions supprimees"}
+
+
+@app.get("/debug/delete-user/{user_id}")
+async def debug_delete_user(user_id: int, db: DBSession = Depends(get_db)):
+    """Supprime un gerant et toutes ses donnees."""
+    from sqlalchemy import text
+    db.execute(text(f"DELETE FROM answers WHERE session_id IN (SELECT id FROM check_sessions WHERE user_id = {user_id})"))
+    db.execute(text(f"DELETE FROM check_sessions WHERE user_id = {user_id}"))
+    db.execute(text(f"DELETE FROM users WHERE id = {user_id}"))
+    db.commit()
+    return {"status": "OK", "message": f"User {user_id} supprime"}
 
 
 @app.get("/debug/test-send")
