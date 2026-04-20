@@ -70,55 +70,81 @@ async def whatsapp_webhook(
     db: DBSession = Depends(get_db),
 ):
     """Endpoint webhook pour recevoir les messages WhatsApp via Meta Cloud API."""
-    body = await request.json()
+    try:
+        body = await request.json()
 
-    # Meta envoie des notifications de statut (sent, delivered, read) qu'on ignore
-    entry = body.get("entry", [])
-    if not entry:
-        return {"status": "ok"}
+        # Meta envoie des notifications de statut (sent, delivered, read) qu'on ignore
+        entry = body.get("entry", [])
+        if not entry:
+            return {"status": "ok"}
 
-    for e in entry:
-        changes = e.get("changes", [])
-        for change in changes:
-            value = change.get("value", {})
-            messages = value.get("messages", [])
+        for e in entry:
+            changes = e.get("changes", [])
+            for change in changes:
+                value = change.get("value", {})
+                messages = value.get("messages", [])
 
-            for msg in messages:
-                if msg.get("type") != "text":
-                    continue
+                for msg in messages:
+                    if msg.get("type") != "text":
+                        continue
 
-                # Extraire le numero et le texte
-                sender = msg["from"]  # Format: 22790000000 (sans +)
-                text = msg["text"]["body"]
+                    # Extraire le numero et le texte
+                    sender = msg["from"]  # Format: 22790000000 (sans +)
+                    text = msg["text"]["body"]
 
-                # Convertir au format stocke en base (+22790000000)
-                phone = f"+{sender}"
+                    # Convertir au format stocke en base (+22790000000)
+                    phone = f"+{sender}"
 
-                logger.info(f"Message recu de {phone}: {text}")
+                    logger.info(f"Message recu de {phone}: {text}")
 
-                reply_text = handle_incoming_message(db, phone, text)
+                    reply_text = handle_incoming_message(db, phone, text)
 
-                # Envoyer la reponse via l'API Meta
-                send_message(phone, reply_text)
+                    # Envoyer la reponse via l'API Meta
+                    send_message(phone, reply_text)
 
-                # Sync Google Sheets si check complete
-                if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
-                    user = db.query(User).filter(User.phone == phone).first()
-                    if user:
-                        session = (
-                            db.query(CheckSession)
-                            .filter(
-                                CheckSession.user_id == user.id,
-                                CheckSession.check_date == date.today(),
-                                CheckSession.completed == True,
+                    # Sync Google Sheets si check complete
+                    if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
+                        user = db.query(User).filter(User.phone == phone).first()
+                        if user:
+                            session = (
+                                db.query(CheckSession)
+                                .filter(
+                                    CheckSession.user_id == user.id,
+                                    CheckSession.check_date == date.today(),
+                                    CheckSession.completed == True,
+                                )
+                                .order_by(CheckSession.created_at.desc())
+                                .first()
                             )
-                            .order_by(CheckSession.created_at.desc())
-                            .first()
-                        )
-                        if session:
-                            sync_response_dynamic(db, session, user.name)
+                            if session:
+                                sync_response_dynamic(db, session, user.name)
+
+    except Exception as e:
+        logger.error(f"Erreur webhook: {e}")
 
     return {"status": "ok"}
+
+
+# ─── DEBUG ───────────────────────────────────────────────────────────────────
+
+
+@app.get("/debug")
+async def debug_info(db: DBSession = Depends(get_db)):
+    """Endpoint de debug pour verifier la connexion DB."""
+    import os
+    try:
+        from sqlalchemy import text
+        db.execute(text("SELECT 1"))
+        db_status = "OK"
+    except Exception as e:
+        db_status = f"ERREUR: {e}"
+
+    return {
+        "db_status": db_status,
+        "db_url_prefix": (os.getenv("DATABASE_URL", "")[:50] + "...") if os.getenv("DATABASE_URL") else "NON DEFINI",
+        "whatsapp_token_set": bool(os.getenv("WHATSAPP_TOKEN")),
+        "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "NON DEFINI"),
+    }
 
 
 # ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
