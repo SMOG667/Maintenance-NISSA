@@ -189,6 +189,28 @@ async def debug_init_db(db: DBSession = Depends(get_db)):
         return {"status": f"ERREUR: {e}"}
 
 
+@app.get("/debug/migrate")
+async def debug_migrate(db: DBSession = Depends(get_db)):
+    """Ajoute les nouvelles colonnes aux tables existantes."""
+    from sqlalchemy import text
+    migrations = [
+        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS followup_trigger VARCHAR",
+        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS followup_text TEXT",
+        "ALTER TABLE check_sessions ADD COLUMN IF NOT EXISTS awaiting_followup BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE answers ADD COLUMN IF NOT EXISTS comment TEXT",
+    ]
+    results = []
+    for sql in migrations:
+        try:
+            db.execute(text(sql))
+            db.commit()
+            results.append({"sql": sql[:60], "status": "OK"})
+        except Exception as e:
+            db.rollback()
+            results.append({"sql": sql[:60], "status": str(e)})
+    return {"migrations": results}
+
+
 @app.get("/debug/test-send")
 async def debug_test_send():
     """Teste l'envoi d'un message WhatsApp."""
