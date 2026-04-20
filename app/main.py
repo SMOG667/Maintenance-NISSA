@@ -211,6 +211,31 @@ async def debug_migrate(db: DBSession = Depends(get_db)):
     return {"migrations": results}
 
 
+@app.get("/debug/test-flow")
+async def debug_test_flow(
+    phone: str = Query(...),
+    message: str = Query(default="oui"),
+    db: DBSession = Depends(get_db),
+):
+    """Simule la reception d'un message et montre le resultat."""
+    try:
+        reply_text, resp_type = handle_incoming_message(db, phone, message)
+        # Tester l'envoi
+        if resp_type == "buttons":
+            from app.whatsapp import send_question as sq
+            send_result = sq(phone, reply_text)
+        else:
+            send_result = send_message(phone, reply_text)
+        return {
+            "reply": reply_text[:200],
+            "resp_type": resp_type,
+            "send_result": send_result,
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/debug/test-send")
 async def debug_test_send():
     """Teste l'envoi d'un message WhatsApp."""
