@@ -16,7 +16,7 @@ from app.models import User, Question, CheckSession, Answer
 from app.session import handle_incoming_message, start_daily_check, start_occasional_check
 from app.sheets import sync_response_dynamic
 from app.whatsapp import send_message, send_question
-from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, WHATSAPP_VERIFY_TOKEN
+from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, WHATSAPP_VERIFY_TOKEN, STRIPE_SECRET_KEY
 
 # Logging
 logging.basicConfig(
@@ -37,6 +37,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Nissa - Chatbot WhatsApp", version="3.0.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
+
+from datetime import datetime as _dt
+templates.env.filters["todatetime"] = lambda ts: _dt.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "-"
 
 
 # ─── WEBHOOK WHATSAPP (META CLOUD API) ──────────────────────────────────────
@@ -452,6 +455,53 @@ async def admin_trigger_occasional(
     )
 
 
+# ─── ADMIN : ABONNEMENT STRIPE ──────────────────────────────────────────────
+
+
+@app.post("/admin/subscribe")
+async def admin_subscribe(request: Request):
+    """Cree une session Stripe Checkout pour s'abonner."""
+    from app.stripe_billing import create_checkout_session
+    base_url = str(request.base_url).rstrip("/")
+    checkout_url = create_checkout_session(base_url)
+    return RedirectResponse(url=checkout_url, status_code=303)
+
+
+@app.post("/admin/billing-portal")
+async def admin_billing_portal(request: Request, customer_id: str = Form(...)):
+    """Redirige vers le portail client Stripe pour gerer l'abonnement."""
+    from app.stripe_billing import create_portal_session
+    base_url = str(request.base_url).rstrip("/")
+    portal_url = create_portal_session(customer_id, base_url)
+    return RedirectResponse(url=portal_url, status_code=303)
+
+
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    """Webhook Stripe pour recevoir les evenements de paiement."""
+    import stripe
+    from app.config import STRIPE_WEBHOOK_SECRET
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    if STRIPE_WEBHOOK_SECRET and sig_header:
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, STRIPE_WEBHOOK_SECRET
+            )
+        except Exception as e:
+            logger.error(f"Erreur verification webhook Stripe: {e}")
+            return PlainTextResponse("Invalid signature", status_code=400)
+    else:
+        import json
+        event = json.loads(payload)
+
+    event_type = event.get("type", "")
+    logger.info(f"Stripe event: {event_type}")
+
+    return {"status": "ok"}
+
+
 # ─── ADMIN : EXPORT ──────────────────────────────────────────────────────────
 
 
@@ -616,6 +666,17 @@ async def admin_panel(
     # Questions occasionnelles pour le formulaire d'envoi
     occasional_questions = [q for q in questions if q.schedule_type == "occasionnel" and q.active]
 
+    # Abonnement Stripe
+    subscription_info = {"active": False, "status": "aucun"}
+    invoices = []
+    if STRIPE_SECRET_KEY:
+        try:
+            from app.stripe_billing import get_subscription_status, get_invoices
+            subscription_info = get_subscription_status()
+            invoices = get_invoices(limit=10)
+        except Exception as e:
+            logger.error(f"Erreur Stripe: {e}")
+
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "tab": tab,
@@ -623,6 +684,8 @@ async def admin_panel(
         "questions": questions,
         "occasional_questions": occasional_questions,
         "history": history,
+        "subscription": subscription_info,
+        "invoices": invoices,
         "success": success,
         "error": error,
     })

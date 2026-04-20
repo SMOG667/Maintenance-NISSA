@@ -16,14 +16,5 @@
       "path": "/cron/daily-check",
       "schedule": "0 7 * * *"
     }
-  ],
-  "env": {
-    "DATABASE_URL": "postgresql://postgres.bkdlhzhssjpchquldrja:2004Abdoulsalam@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
-    "WHATSAPP_TOKEN": "EAAdM6Tw7JxoBRTadmVqqlOXksPkIpjPX84G7DZA4asZCJmRyMQSe0x6yVBauRhP0HiqKhZBGCNWnB80wFFiiXp7qMPS9kAiXjDCA48ZBQxpcZCm0TEVV0d2wqu5UAghrVxWqrq21G2GNmwRmFTHHKfVcLZCXF5irWTZCtSHhWTkfGAikzOHyKsT7NwTcnZAY7DF79V9alGK1XMAtT5bdX92lq725jRLbDjqsAA7lBSJNgCD6Ta2Rq1BXpx9KMBGYfn9CgZCjp3IKj6wjSrAPfPlXpNlvZAJbQRvHXhAHD6kQZDZD",
-    "WHATSAPP_PHONE_NUMBER_ID": "1119068977950926",
-    "WHATSAPP_VERIFY_TOKEN": "nissa_verify",
-    "ASSISTANT_WHATSAPP_NUMBER": "+2250586752574",
-    "CRON_SECRET": "dq06d_dTtmP9qF-aGrrH28_lbS5kz2VDE83pw_VaQoM",
-    "GOOGLE_SHEETS_ENABLED": "false"
-  }
+  ]
 }
