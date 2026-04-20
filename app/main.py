@@ -179,7 +179,7 @@ async def debug_init_db(db: DBSession = Depends(get_db)):
 async def debug_test_send():
     """Teste l'envoi d'un message WhatsApp."""
     result = send_message("+2250586752574", "Test Nissa - le chatbot fonctionne !")
-    return {"message_sent": result}
+    return result
 
 
 # ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
