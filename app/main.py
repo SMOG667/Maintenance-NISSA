@@ -652,6 +652,54 @@ async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depend
     )
 
 
+# ─── PAGES PUBLIQUES ─────────────────────────────────────────────────────────
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_policy():
+    """Politique de confidentialite (requise par Meta)."""
+    return """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head><meta charset="UTF-8"><title>Nissa - Politique de confidentialite</title>
+    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}h2{margin-top:30px;}</style>
+    </head>
+    <body>
+    <h1>Politique de confidentialite - Nissa</h1>
+    <p><strong>Derniere mise a jour :</strong> Avril 2026</p>
+
+    <h2>1. Donnees collectees</h2>
+    <p>Nissa collecte les donnees suivantes dans le cadre du service de maintenance des stations-service :</p>
+    <ul>
+        <li>Numero de telephone WhatsApp des gerants de station</li>
+        <li>Nom et station d'affectation</li>
+        <li>Reponses aux questionnaires de maintenance (OUI/NON et commentaires)</li>
+    </ul>
+
+    <h2>2. Utilisation des donnees</h2>
+    <p>Les donnees sont utilisees exclusivement pour :</p>
+    <ul>
+        <li>Envoyer les checks de maintenance journaliers via WhatsApp</li>
+        <li>Detecter et signaler les problemes aux superviseurs</li>
+        <li>Generer des rapports et statistiques de maintenance</li>
+    </ul>
+
+    <h2>3. Partage des donnees</h2>
+    <p>Les donnees ne sont partagees avec aucun tiers. Seuls les superviseurs autorises ont acces aux rapports.</p>
+
+    <h2>4. Stockage et securite</h2>
+    <p>Les donnees sont stockees de maniere securisee sur des serveurs proteges (Supabase). L'acces est restreint aux administrateurs autorises.</p>
+
+    <h2>5. Suppression des donnees</h2>
+    <p>Les gerants peuvent demander la suppression de leurs donnees en contactant leur superviseur. Les donnees seront supprimees dans un delai de 30 jours.</p>
+
+    <h2>6. Contact</h2>
+    <p>Pour toute question concernant cette politique, contactez l'administrateur de la plateforme Nissa.</p>
+    </body>
+    </html>
+    """
+
+
 # ─── PAGES HTML ──────────────────────────────────────────────────────────────
 
 
