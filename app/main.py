@@ -655,6 +655,38 @@ async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depend
 # ─── PAGES PUBLIQUES ─────────────────────────────────────────────────────────
 
 
+@app.get("/data-deletion", response_class=HTMLResponse)
+async def data_deletion():
+    """Page de demande de suppression des donnees (requise par Meta)."""
+    return """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head><meta charset="UTF-8"><title>Nissa - Suppression des donnees</title>
+    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}</style>
+    </head>
+    <body>
+    <h1>Demande de suppression des donnees - Nissa</h1>
+    <p>Conformement aux reglementations en vigueur, vous pouvez demander la suppression de vos donnees personnelles.</p>
+    <h2>Comment demander la suppression ?</h2>
+    <p>Envoyez un message WhatsApp a votre superviseur ou contactez l'administrateur de la plateforme Nissa en indiquant :</p>
+    <ul>
+        <li>Votre nom complet</li>
+        <li>Votre numero de telephone WhatsApp</li>
+        <li>La mention "Demande de suppression de donnees"</li>
+    </ul>
+    <h2>Quelles donnees seront supprimees ?</h2>
+    <ul>
+        <li>Votre profil (nom, numero, station)</li>
+        <li>Toutes vos reponses aux checks de maintenance</li>
+        <li>L'historique de vos sessions</li>
+    </ul>
+    <h2>Delai</h2>
+    <p>Vos donnees seront supprimees dans un delai maximum de <strong>30 jours</strong> suivant votre demande.</p>
+    </body>
+    </html>
+    """
+
+
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_policy():
     """Politique de confidentialite (requise par Meta)."""
