@@ -20,7 +20,7 @@
   "env": {
     "DATABASE_URL": "postgresql://postgres.bkdlhzhssjpchquldrja:2004Abdoulsalam@aws-0-eu-west-1.pooler.supabase.com:6543/postgres",
     "TWILIO_ACCOUNT_SID": "AC93cb728aa3b6ba9d5b903689aa712c1b",
-    "TWILIO_AUTH_TOKEN": "534424ec79ef2b1c9417650f44637659",
+    "TWILIO_AUTH_TOKEN": "7fe816a5ad797ef3027d02e3bfb557b6",
     "TWILIO_WHATSAPP_NUMBER": "whatsapp:+14155238886",
     "ASSISTANT_WHATSAPP_NUMBER": "+2250586752574",
     "CRON_SECRET": "dq06d_dTtmP9qF-aGrrH28_lbS5kz2VDE83pw_VaQoM",
