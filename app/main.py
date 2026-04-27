@@ -16,7 +16,7 @@ from app.models import User, Question, CheckSession, Answer
 from app.session import handle_incoming_message, start_daily_check, start_occasional_check
 from app.sheets import sync_response_dynamic
 from app.whatsapp import send_message, send_question
-from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, WHATSAPP_VERIFY_TOKEN, STRIPE_SECRET_KEY
+from app.config import GOOGLE_SHEETS_ENABLED, CRON_SECRET, STRIPE_SECRET_KEY
 
 # Logging
 logging.basicConfig(
@@ -42,29 +42,7 @@ from datetime import datetime as _dt
 templates.env.filters["todatetime"] = lambda ts: _dt.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "-"
 
 
-# ─── WEBHOOK WHATSAPP (META CLOUD API) ──────────────────────────────────────
-
-
-@app.get("/webhook")
-async def whatsapp_verify(
-    request: Request,
-):
-    """Endpoint de verification du webhook Meta.
-
-    Meta envoie une requete GET avec hub.mode, hub.verify_token et hub.challenge.
-    On verifie le token et on renvoie le challenge.
-    """
-    params = request.query_params
-    mode = params.get("hub.mode")
-    token = params.get("hub.verify_token")
-    challenge = params.get("hub.challenge")
-
-    if mode == "subscribe" and token == WHATSAPP_VERIFY_TOKEN:
-        logger.info("Webhook verifie avec succes")
-        return PlainTextResponse(content=challenge, status_code=200)
-
-    logger.warning(f"Verification webhook echouee: mode={mode}, token={token}")
-    return PlainTextResponse(content="Forbidden", status_code=403)
+# ─── WEBHOOK WHATSAPP (TWILIO) ───────────────────────────────────────────────
 
 
 # Stocke les derniers webhooks recus pour debug
@@ -79,83 +57,58 @@ async def debug_webhooks():
 
 @app.post("/webhook")
 async def whatsapp_webhook(
-    request: Request,
+    From: str = Form(...),
+    Body: str = Form(...),
     db: DBSession = Depends(get_db),
 ):
-    """Endpoint webhook pour recevoir les messages WhatsApp via Meta Cloud API."""
+    """Endpoint webhook pour recevoir les messages WhatsApp via Twilio."""
     try:
-        body = await request.json()
-
-        # Log le webhook recu pour debug
-        import json
-        _last_webhooks.append(json.loads(json.dumps(body, default=str)))
+        # Log pour debug
+        _last_webhooks.append({"from": From, "body": Body})
         if len(_last_webhooks) > 20:
             _last_webhooks.pop(0)
 
-        # Meta envoie des notifications de statut (sent, delivered, read) qu'on ignore
-        entry = body.get("entry", [])
-        if not entry:
-            return {"status": "ok"}
+        # Twilio envoie le numero au format whatsapp:+XXXXXXXXXXX
+        phone = From.replace("whatsapp:", "").strip()
+        text = Body.strip()
 
-        for e in entry:
-            changes = e.get("changes", [])
-            for change in changes:
-                value = change.get("value", {})
-                messages = value.get("messages", [])
+        logger.info(f"Message recu de {phone}: {text}")
 
-                for msg in messages:
-                    msg_type = msg.get("type")
+        reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, text)
 
-                    # Extraire le numero et le texte selon le type de message
-                    sender = msg["from"]  # Format: 22790000000 (sans +)
-                    phone = f"+{sender}"
+        # Utiliser le numero stocke en base
+        target_phone = reply_phone or phone
 
-                    if msg_type == "text":
-                        text = msg["text"]["body"]
-                    elif msg_type == "interactive":
-                        # Reponse a un bouton (OUI/NON)
-                        interactive = msg.get("interactive", {})
-                        if interactive.get("type") == "button_reply":
-                            text = interactive["button_reply"]["id"]  # "oui" ou "non"
-                        else:
-                            continue
-                    else:
-                        continue
+        # Envoyer la reponse
+        send_message(target_phone, reply_text)
 
-                    logger.info(f"Message recu de {phone}: {text}")
+        # Sync Google Sheets si check complete
+        if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
+            user = db.query(User).filter(User.phone == phone).first()
+            if user:
+                session = (
+                    db.query(CheckSession)
+                    .filter(
+                        CheckSession.user_id == user.id,
+                        CheckSession.check_date == date.today(),
+                        CheckSession.completed == True,
+                    )
+                    .order_by(CheckSession.created_at.desc())
+                    .first()
+                )
+                if session:
+                    sync_response_dynamic(db, session, user.name)
 
-                    reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, text)
-
-                    # Utiliser le numero stocke en base (format valide Meta)
-                    target_phone = reply_phone or phone
-
-                    # Envoyer la reponse selon le type
-                    if resp_type == "buttons":
-                        send_question(target_phone, reply_text)
-                    else:
-                        send_message(target_phone, reply_text)
-
-                    # Sync Google Sheets si check complete
-                    if GOOGLE_SHEETS_ENABLED and ("Check termine" in reply_text):
-                        user = db.query(User).filter(User.phone == phone).first()
-                        if user:
-                            session = (
-                                db.query(CheckSession)
-                                .filter(
-                                    CheckSession.user_id == user.id,
-                                    CheckSession.check_date == date.today(),
-                                    CheckSession.completed == True,
-                                )
-                                .order_by(CheckSession.created_at.desc())
-                                .first()
-                            )
-                            if session:
-                                sync_response_dynamic(db, session, user.name)
+        # Reponse TwiML vide (Twilio attend du XML)
+        from twilio.twiml.messaging_response import MessagingResponse
+        twiml = MessagingResponse()
+        return PlainTextResponse(content=str(twiml), media_type="application/xml")
 
     except Exception as e:
         logger.error(f"Erreur webhook: {e}")
-
-    return {"status": "ok"}
+        from twilio.twiml.messaging_response import MessagingResponse
+        twiml = MessagingResponse()
+        return PlainTextResponse(content=str(twiml), media_type="application/xml")
 
 
 # ─── DEBUG ───────────────────────────────────────────────────────────────────
@@ -186,8 +139,8 @@ async def debug_info(db: DBSession = Depends(get_db)):
         "tables_ok": tables_ok,
         "user_count": user_count,
         "db_url_prefix": (os.getenv("DATABASE_URL", "")[:50] + "...") if os.getenv("DATABASE_URL") else "NON DEFINI",
-        "whatsapp_token_set": bool(os.getenv("WHATSAPP_TOKEN")),
-        "phone_number_id": os.getenv("WHATSAPP_PHONE_NUMBER_ID", "NON DEFINI"),
+        "twilio_sid_set": bool(os.getenv("TWILIO_ACCOUNT_SID")),
+        "twilio_number": os.getenv("TWILIO_WHATSAPP_NUMBER", "NON DEFINI"),
     }
 
 

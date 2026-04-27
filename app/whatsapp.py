@@ -1,111 +1,65 @@
-"""Client WhatsApp Cloud API (Meta Graph API)."""
+"""Client WhatsApp via Twilio."""
 
 import os
 import logging
-import httpx
 
 logger = logging.getLogger("nissa.whatsapp")
 
 
-def _normalize_phone(phone: str) -> str:
-    """Convertit un numero au format Meta (sans + ni whatsapp:).
+def _get_client():
+    """Cree et retourne un client Twilio."""
+    from twilio.rest import Client
+    sid = os.getenv("TWILIO_ACCOUNT_SID")
+    token = os.getenv("TWILIO_AUTH_TOKEN")
+    if not sid or not token:
+        logger.error(f"Config Twilio manquante: SID={'OK' if sid else 'MANQUANT'}, Token={'OK' if token else 'MANQUANT'}")
+        return None
+    return Client(sid, token)
+
+
+def _to_whatsapp(phone: str) -> str:
+    """Convertit un numero au format Twilio WhatsApp.
 
     Exemples:
-        '+22790000000' -> '22790000000'
-        'whatsapp:+22790000000' -> '22790000000'
-        '22790000000' -> '22790000000'
+        '+2250586752574' -> 'whatsapp:+2250586752574'
+        'whatsapp:+2250586752574' -> 'whatsapp:+2250586752574'
+        '2250586752574' -> 'whatsapp:+2250586752574'
     """
-    phone = phone.replace("whatsapp:", "").strip()
-    if phone.startswith("+"):
-        phone = phone[1:]
-    return phone
-
-
-def _get_api_config():
-    """Recupere le token et phone_id depuis les variables d'env."""
-    token = os.getenv("WHATSAPP_TOKEN")
-    phone_id = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-    return token, phone_id
-
-
-def _send_payload(recipient: str, payload: dict) -> dict:
-    """Envoie un payload a l'API Meta WhatsApp."""
-    token, phone_id = _get_api_config()
-
-    if not token or not phone_id:
-        error = f"Config manquante: token={'OK' if token else 'MANQUANT'}, phone_id={'OK' if phone_id else 'MANQUANT'}"
-        logger.error(error)
-        return {"success": False, "error": error}
-
-    url = f"https://graph.facebook.com/v21.0/{phone_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-
-    try:
-        with httpx.Client(timeout=30) as client:
-            response = client.post(url, headers=headers, json=payload)
-            data = response.json()
-
-            if response.status_code >= 400:
-                logger.error(f"Erreur API Meta ({response.status_code}): {data}")
-                return {"success": False, "status": response.status_code, "error": data}
-
-            msg_id = data.get("messages", [{}])[0].get("id", "?")
-            logger.info(f"Message envoye a {recipient} (ID: {msg_id})")
-            return {"success": True, "message_id": msg_id}
-
-    except Exception as e:
-        logger.error(f"Erreur envoi message a {recipient}: {e}")
-        return {"success": False, "error": str(e)}
+    phone = phone.strip()
+    if phone.startswith("whatsapp:"):
+        return phone
+    if not phone.startswith("+"):
+        phone = f"+{phone}"
+    return f"whatsapp:{phone}"
 
 
 def send_message(to: str, body: str) -> dict:
-    """Envoie un message texte simple."""
-    recipient = _normalize_phone(to)
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": recipient,
-        "type": "text",
-        "text": {"body": body},
-    }
-    return _send_payload(recipient, payload)
+    """Envoie un message WhatsApp via Twilio."""
+    try:
+        client = _get_client()
+        if not client:
+            return {"success": False, "error": "Client Twilio non configure"}
 
+        from_number = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
+        to_number = _to_whatsapp(to)
 
-def send_buttons(to: str, body: str, buttons: list[dict]) -> dict:
-    """Envoie un message avec des boutons interactifs.
+        message = client.messages.create(
+            from_=from_number,
+            to=to_number,
+            body=body,
+        )
+        logger.info(f"Message envoye a {to_number} (SID: {message.sid})")
+        return {"success": True, "message_id": message.sid}
 
-    Args:
-        to: numero du destinataire
-        body: texte de la question
-        buttons: liste de {"id": "oui", "title": "OUI"}
-    """
-    recipient = _normalize_phone(to)
-    payload = {
-        "messaging_product": "whatsapp",
-        "to": recipient,
-        "type": "interactive",
-        "interactive": {
-            "type": "button",
-            "body": {"text": body},
-            "action": {
-                "buttons": [
-                    {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
-                    for btn in buttons
-                ]
-            },
-        },
-    }
-    return _send_payload(recipient, payload)
-
-
-OUI_NON_BUTTONS = [
-    {"id": "oui", "title": "OUI"},
-    {"id": "non", "title": "NON"},
-]
+    except Exception as e:
+        logger.error(f"Erreur envoi message a {to}: {e}")
+        return {"success": False, "error": str(e)}
 
 
 def send_question(to: str, body: str) -> dict:
-    """Envoie une question avec les boutons OUI / NON."""
-    return send_buttons(to, body, OUI_NON_BUTTONS)
+    """Envoie une question.
+
+    Twilio Sandbox ne supporte pas les boutons interactifs,
+    donc on envoie un message texte simple.
+    """
+    return send_message(to, body)

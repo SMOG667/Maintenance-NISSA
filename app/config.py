@@ -3,12 +3,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# WhatsApp Cloud API (Meta)
-WHATSAPP_TOKEN = os.getenv("WHATSAPP_TOKEN")
-WHATSAPP_PHONE_NUMBER_ID = os.getenv("WHATSAPP_PHONE_NUMBER_ID")
-WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "nissa_verify")
+# Twilio WhatsApp
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER", "whatsapp:+14155238886")
 
-# Assistante - numero WhatsApp pour recevoir les alertes (format: +227XXXXXXXX)
+# Assistante - numero WhatsApp pour recevoir les alertes
 ASSISTANT_WHATSAPP_NUMBER = os.getenv("ASSISTANT_WHATSAPP_NUMBER")
 
 # Base de donnees (Supabase PostgreSQL)

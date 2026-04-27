@@ -9,3 +9,4 @@ psycopg2-binary==2.9.9
 gspread==6.1.2
 google-auth==2.35.0
 stripe==8.0.0
+twilio==9.3.0

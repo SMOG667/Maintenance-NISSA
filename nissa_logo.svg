@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#16213e"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1024" height="1024" rx="200" fill="url(#bg)"/>
+
+  <!-- Fuel pump icon -->
+  <g transform="translate(512, 380)" fill="none" stroke="#4ecca3" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Pump body -->
+    <rect x="-120" y="-140" width="200" height="280" rx="20" fill="#4ecca3" fill-opacity="0.15"/>
+    <!-- Screen -->
+    <rect x="-80" y="-100" width="120" height="80" rx="10" fill="#4ecca3" fill-opacity="0.3"/>
+    <!-- Hose -->
+    <path d="M80,-60 Q160,-60 160,0 Q160,80 120,80" stroke-width="24"/>
+    <!-- Nozzle -->
+    <path d="M120,80 L120,120 L90,120" stroke-width="20"/>
+    <!-- Base -->
+    <line x1="-140" y1="140" x2="100" y2="140" stroke-width="24"/>
+  </g>
+
+  <!-- Checkmark circle -->
+  <g transform="translate(640, 300)">
+    <circle r="50" fill="#4ecca3"/>
+    <path d="M-20,0 L-5,15 L20,-15" stroke="white" stroke-width="10" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Text NISSA -->
+  <text x="512" y="720" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="140" font-weight="bold" fill="white" letter-spacing="20">NISSA</text>
+
+  <!-- Subtitle -->
+  <text x="512" y="790" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="40" fill="#4ecca3" letter-spacing="8">MAINTENANCE</text>
+</svg>
