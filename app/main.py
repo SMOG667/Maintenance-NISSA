@@ -1,12 +1,14 @@
-"""Application principale Nissa - Chatbot WhatsApp."""
+"""Application principale Nissa - Chatbot WhatsApp de maintenance."""
 
 import csv
 import io
 import logging
+import os
+import secrets
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from fastapi import FastAPI, Form, Depends, Request, Query, Header
+from fastapi import FastAPI, Form, Depends, Request, Query, Header, Response
 from fastapi.responses import HTMLResponse, PlainTextResponse, StreamingResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session as DBSession
@@ -26,6 +28,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nissa")
 
+# Admin credentials
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "nissa2026")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,24 +41,101 @@ async def lifespan(app: FastAPI):
     logger.info("Application Nissa arretee")
 
 
-app = FastAPI(title="Nissa - Chatbot WhatsApp", version="3.0.0", lifespan=lifespan)
+app = FastAPI(title="Nissa - Chatbot WhatsApp", version="4.0.0", lifespan=lifespan)
 templates = Jinja2Templates(directory="app/templates")
+templates.env.filters["todatetime"] = lambda ts: datetime.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "-"
 
-from datetime import datetime as _dt
-templates.env.filters["todatetime"] = lambda ts: _dt.fromtimestamp(ts).strftime("%d/%m/%Y") if ts else "-"
+
+# ─── AUTHENTIFICATION ADMIN ─────────────────────────────────────────────────
+
+
+def verify_admin(request: Request) -> bool:
+    """Verifie que l'utilisateur est authentifie via cookie."""
+    token = request.cookies.get("nissa_admin_token")
+    expected = _make_token(ADMIN_USERNAME, ADMIN_PASSWORD)
+    return token == expected
+
+
+def _make_token(username: str, password: str) -> str:
+    """Genere un token d'authentification a partir des credentials."""
+    import hashlib
+    return hashlib.sha256(f"{username}:{password}:nissa_secret_salt".encode()).hexdigest()
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str | None = None):
+    """Page de connexion admin."""
+    if verify_admin(request):
+        return RedirectResponse(url="/admin", status_code=303)
+    return """
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nissa - Connexion</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;}
+        body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#1a1a2e;display:flex;justify-content:center;align-items:center;min-height:100vh;}
+        .login-box{background:white;border-radius:12px;padding:40px;width:90%;max-width:400px;box-shadow:0 10px 40px rgba(0,0,0,0.3);}
+        .login-box h1{text-align:center;color:#1a1a2e;margin-bottom:8px;font-size:28px;}
+        .login-box p{text-align:center;color:#888;margin-bottom:24px;font-size:14px;}
+        .form-group{margin-bottom:16px;}
+        .form-group label{display:block;font-size:12px;text-transform:uppercase;color:#888;margin-bottom:4px;letter-spacing:0.5px;}
+        .form-group input{width:100%;padding:10px 14px;border:1px solid #ddd;border-radius:8px;font-size:15px;}
+        .form-group input:focus{outline:none;border-color:#1a1a2e;}
+        .btn{width:100%;padding:12px;background:#1a1a2e;color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;}
+        .btn:hover{background:#2d2d4e;}
+        .error{background:#f8d7da;color:#721c24;padding:10px;border-radius:8px;margin-bottom:16px;font-size:13px;text-align:center;}
+    </style>
+    </head>
+    <body>
+    <div class="login-box">
+        <h1>NISSA</h1>
+        <p>Panneau d'administration</p>
+        """ + (f'<div class="error">{error}</div>' if error else '') + """
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label>Identifiant</label>
+                <input type="text" name="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>Mot de passe</label>
+                <input type="password" name="password" required>
+            </div>
+            <button type="submit" class="btn">Se connecter</button>
+        </form>
+    </div>
+    </body>
+    </html>
+    """
+
+
+@app.post("/login")
+async def login_submit(username: str = Form(...), password: str = Form(...)):
+    """Traite la connexion admin."""
+    if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+        response = RedirectResponse(url="/admin", status_code=303)
+        token = _make_token(username, password)
+        response.set_cookie(
+            key="nissa_admin_token",
+            value=token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=86400 * 7,  # 7 jours
+        )
+        return response
+    return RedirectResponse(url="/login?error=Identifiants+incorrects", status_code=303)
+
+
+@app.get("/logout")
+async def logout():
+    """Deconnexion admin."""
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie("nissa_admin_token")
+    return response
 
 
 # ─── WEBHOOK WHATSAPP (TWILIO) ───────────────────────────────────────────────
-
-
-# Stocke les derniers webhooks recus pour debug
-_last_webhooks = []
-
-
-@app.get("/debug/webhooks")
-async def debug_webhooks():
-    """Affiche les derniers webhooks recus."""
-    return {"count": len(_last_webhooks), "webhooks": _last_webhooks[-10:]}
 
 
 @app.post("/webhook")
@@ -63,23 +146,14 @@ async def whatsapp_webhook(
 ):
     """Endpoint webhook pour recevoir les messages WhatsApp via Twilio."""
     try:
-        # Log pour debug
-        _last_webhooks.append({"from": From, "body": Body})
-        if len(_last_webhooks) > 20:
-            _last_webhooks.pop(0)
-
-        # Twilio envoie le numero au format whatsapp:+XXXXXXXXXXX
         phone = From.replace("whatsapp:", "").strip()
         text = Body.strip()
 
         logger.info(f"Message recu de {phone}: {text}")
 
         reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, text)
-
-        # Utiliser le numero stocke en base
         target_phone = reply_phone or phone
 
-        # Envoyer la reponse
         send_message(target_phone, reply_text)
 
         # Sync Google Sheets si check complete
@@ -99,7 +173,6 @@ async def whatsapp_webhook(
                 if session:
                     sync_response_dynamic(db, session, user.name)
 
-        # Reponse TwiML vide (Twilio attend du XML)
         from twilio.twiml.messaging_response import MessagingResponse
         twiml = MessagingResponse()
         return PlainTextResponse(content=str(twiml), media_type="application/xml")
@@ -111,134 +184,7 @@ async def whatsapp_webhook(
         return PlainTextResponse(content=str(twiml), media_type="application/xml")
 
 
-# ─── DEBUG ───────────────────────────────────────────────────────────────────
-
-
-@app.get("/debug")
-async def debug_info(db: DBSession = Depends(get_db)):
-    """Endpoint de debug pour verifier la connexion DB."""
-    import os
-    try:
-        from sqlalchemy import text
-        db.execute(text("SELECT 1"))
-        db_status = "OK"
-    except Exception as e:
-        db_status = f"ERREUR: {e}"
-
-    # Verifier si les tables existent
-    tables_ok = False
-    user_count = 0
-    try:
-        user_count = db.query(User).count()
-        tables_ok = True
-    except Exception as e:
-        tables_ok = f"ERREUR: {e}"
-
-    return {
-        "db_status": db_status,
-        "tables_ok": tables_ok,
-        "user_count": user_count,
-        "db_url_prefix": (os.getenv("DATABASE_URL", "")[:50] + "...") if os.getenv("DATABASE_URL") else "NON DEFINI",
-        "twilio_sid_set": bool(os.getenv("TWILIO_ACCOUNT_SID")),
-        "twilio_number": os.getenv("TWILIO_WHATSAPP_NUMBER", "NON DEFINI"),
-    }
-
-
-@app.get("/debug/init")
-async def debug_init_db(db: DBSession = Depends(get_db)):
-    """Initialise les tables dans la base de donnees."""
-    try:
-        init_db()
-        user_count = db.query(User).count()
-        question_count = db.query(Question).count()
-        return {
-            "status": "OK",
-            "tables_created": True,
-            "users": user_count,
-            "questions": question_count,
-        }
-    except Exception as e:
-        return {"status": f"ERREUR: {e}"}
-
-
-@app.get("/debug/migrate")
-async def debug_migrate(db: DBSession = Depends(get_db)):
-    """Ajoute les nouvelles colonnes aux tables existantes."""
-    from sqlalchemy import text
-    migrations = [
-        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS followup_trigger VARCHAR",
-        "ALTER TABLE questions ADD COLUMN IF NOT EXISTS followup_text TEXT",
-        "ALTER TABLE check_sessions ADD COLUMN IF NOT EXISTS awaiting_followup BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE answers ADD COLUMN IF NOT EXISTS comment TEXT",
-    ]
-    results = []
-    for sql in migrations:
-        try:
-            db.execute(text(sql))
-            db.commit()
-            results.append({"sql": sql[:60], "status": "OK"})
-        except Exception as e:
-            db.rollback()
-            results.append({"sql": sql[:60], "status": str(e)})
-    return {"migrations": results}
-
-
-@app.get("/debug/test-flow")
-async def debug_test_flow(
-    phone: str = Query(...),
-    message: str = Query(default="oui"),
-    db: DBSession = Depends(get_db),
-):
-    """Simule la reception d'un message et montre le resultat."""
-    try:
-        reply_text, resp_type, reply_phone = handle_incoming_message(db, phone, message)
-        target = reply_phone or phone
-        # Tester l'envoi
-        if resp_type == "buttons":
-            from app.whatsapp import send_question as sq
-            send_result = sq(target, reply_text)
-        else:
-            send_result = send_message(target, reply_text)
-        return {
-            "reply": reply_text[:200],
-            "resp_type": resp_type,
-            "target_phone": target,
-            "send_result": send_result,
-        }
-    except Exception as e:
-        import traceback
-        return {"error": str(e), "traceback": traceback.format_exc()}
-
-
-@app.get("/debug/reset-sessions")
-async def debug_reset_sessions(db: DBSession = Depends(get_db)):
-    """Supprime toutes les sessions et reponses."""
-    from sqlalchemy import text
-    db.execute(text("DELETE FROM answers"))
-    db.execute(text("DELETE FROM check_sessions"))
-    db.commit()
-    return {"status": "OK", "message": "Toutes les sessions supprimees"}
-
-
-@app.get("/debug/delete-user/{user_id}")
-async def debug_delete_user(user_id: int, db: DBSession = Depends(get_db)):
-    """Supprime un gerant et toutes ses donnees."""
-    from sqlalchemy import text
-    db.execute(text(f"DELETE FROM answers WHERE session_id IN (SELECT id FROM check_sessions WHERE user_id = {user_id})"))
-    db.execute(text(f"DELETE FROM check_sessions WHERE user_id = {user_id}"))
-    db.execute(text(f"DELETE FROM users WHERE id = {user_id}"))
-    db.commit()
-    return {"status": "OK", "message": f"User {user_id} supprime"}
-
-
-@app.get("/debug/test-send")
-async def debug_test_send():
-    """Teste l'envoi d'un message WhatsApp."""
-    result = send_message("+2250586752574", "Test Nissa - le chatbot fonctionne !")
-    return result
-
-
-# ─── CRON (appele par Vercel Cron chaque jour) ──────────────────────────────
+# ─── CRON ────────────────────────────────────────────────────────────────────
 
 
 @app.get("/cron/daily-check")
@@ -247,7 +193,6 @@ async def cron_daily_check(
     db: DBSession = Depends(get_db),
 ):
     """Endpoint appele par Vercel Cron pour le check journalier automatique."""
-    # Verifier le secret pour empecher les appels non autorises
     if CRON_SECRET:
         expected = f"Bearer {CRON_SECRET}"
         if authorization != expected:
@@ -257,12 +202,11 @@ async def cron_daily_check(
     return {"status": "ok", "message": "Check journalier declenche"}
 
 
-# ─── API ENDPOINTS ───────────────────────────────────────────────────────────
+# ─── API ─────────────────────────────────────────────────────────────────────
 
 
 @app.get("/api/stations")
 async def api_list_stations(db: DBSession = Depends(get_db)):
-    """Liste toutes les stations et leurs gerants."""
     users = db.query(User).filter(User.active == True).all()
     return [
         {"id": u.id, "name": u.name, "station": u.station, "phone": u.phone}
@@ -271,31 +215,20 @@ async def api_list_stations(db: DBSession = Depends(get_db)):
 
 
 @app.get("/api/questions")
-async def api_list_questions(
-    schedule_type: str | None = None,
-    db: DBSession = Depends(get_db),
-):
-    """Liste les questions."""
+async def api_list_questions(schedule_type: str | None = None, db: DBSession = Depends(get_db)):
     query = db.query(Question)
     if schedule_type:
         query = query.filter(Question.schedule_type == schedule_type)
     questions = query.order_by(Question.position).all()
     return [
-        {
-            "id": q.id,
-            "text": q.text,
-            "problem_type": q.problem_type,
-            "schedule_type": q.schedule_type,
-            "position": q.position,
-            "active": q.active,
-        }
+        {"id": q.id, "text": q.text, "problem_type": q.problem_type,
+         "schedule_type": q.schedule_type, "position": q.position, "active": q.active}
         for q in questions
     ]
 
 
 @app.get("/api/checks")
 async def api_list_checks(days: int = 7, db: DBSession = Depends(get_db)):
-    """Liste les checks recents."""
     since = date.today() - timedelta(days=days)
     sessions = (
         db.query(CheckSession)
@@ -313,27 +246,22 @@ async def api_list_checks(days: int = 7, db: DBSession = Depends(get_db)):
             "gerant": user.name if user else "?",
             "check_type": s.check_type,
             "status": s.status,
-            "answers": [
-                {"question_id": a.question_id, "answer": a.answer}
-                for a in answers
-            ],
+            "answers": [{"question_id": a.question_id, "answer": a.answer} for a in answers],
         })
     return results
 
 
-# ─── ADMIN : GESTION DES GERANTS ─────────────────────────────────────────────
+# ─── ADMIN : GESTION DES GERANTS ────────────────────────────────────────────
 
 
 @app.post("/admin/users/add")
 async def admin_add_user(
-    phone: str = Form(...),
-    name: str = Form(...),
-    station: str = Form(...),
-    db: DBSession = Depends(get_db),
+    request: Request, phone: str = Form(...), name: str = Form(...),
+    station: str = Form(...), db: DBSession = Depends(get_db),
 ):
-    phone = phone.strip()
-    # Nettoyer le format : on stocke en +XXXXXXXXXXX
-    phone = phone.replace("whatsapp:", "").strip()
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
+    phone = phone.strip().replace("whatsapp:", "").strip()
     if not phone.startswith("+"):
         phone = f"+{phone}"
 
@@ -350,18 +278,16 @@ async def admin_add_user(
 
 @app.post("/admin/users/{user_id}/edit")
 async def admin_edit_user(
-    user_id: int,
-    phone: str = Form(...),
-    name: str = Form(...),
-    station: str = Form(...),
-    db: DBSession = Depends(get_db),
+    request: Request, user_id: int, phone: str = Form(...), name: str = Form(...),
+    station: str = Form(...), db: DBSession = Depends(get_db),
 ):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return RedirectResponse(url="/admin?tab=gerants&error=Gerant+introuvable", status_code=303)
 
-    phone = phone.strip()
-    phone = phone.replace("whatsapp:", "").strip()
+    phone = phone.strip().replace("whatsapp:", "").strip()
     if not phone.startswith("+"):
         phone = f"+{phone}"
 
@@ -373,7 +299,9 @@ async def admin_edit_user(
 
 
 @app.post("/admin/users/{user_id}/toggle")
-async def admin_toggle_user(user_id: int, db: DBSession = Depends(get_db)):
+async def admin_toggle_user(request: Request, user_id: int, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return RedirectResponse(url="/admin?tab=gerants&error=Gerant+introuvable", status_code=303)
@@ -384,57 +312,56 @@ async def admin_toggle_user(user_id: int, db: DBSession = Depends(get_db)):
 
 
 @app.post("/admin/users/{user_id}/delete")
-async def admin_delete_user(user_id: int, db: DBSession = Depends(get_db)):
+async def admin_delete_user(request: Request, user_id: int, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return RedirectResponse(url="/admin?tab=gerants&error=Gerant+introuvable", status_code=303)
+    # Supprimer les sessions et reponses associees
+    sessions = db.query(CheckSession).filter(CheckSession.user_id == user_id).all()
+    for s in sessions:
+        db.query(Answer).filter(Answer.session_id == s.id).delete()
+    db.query(CheckSession).filter(CheckSession.user_id == user_id).delete()
     db.delete(user)
     db.commit()
     return RedirectResponse(url="/admin?tab=gerants&success=Gerant+supprime", status_code=303)
 
 
-# ─── ADMIN : GESTION DES QUESTIONS ───────────────────────────────────────────
+# ─── ADMIN : GESTION DES QUESTIONS ──────────────────────────────────────────
 
 
 @app.post("/admin/questions/add")
 async def admin_add_question(
-    text: str = Form(...),
-    problem_type: str = Form(""),
-    problem_label: str = Form(""),
-    schedule_type: str = Form("quotidien"),
-    position: int = Form(0),
-    followup_trigger: str = Form(""),
-    followup_text: str = Form(""),
-    db: DBSession = Depends(get_db),
+    request: Request, text: str = Form(...), problem_type: str = Form(""),
+    problem_label: str = Form(""), schedule_type: str = Form("quotidien"),
+    position: int = Form(0), followup_trigger: str = Form(""),
+    followup_text: str = Form(""), db: DBSession = Depends(get_db),
 ):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     question = Question(
-        text=text.strip(),
-        problem_type=problem_type.strip() or None,
-        problem_label=problem_label.strip() or None,
-        schedule_type=schedule_type,
-        position=position,
-        active=True,
+        text=text.strip(), problem_type=problem_type.strip() or None,
+        problem_label=problem_label.strip() or None, schedule_type=schedule_type,
+        position=position, active=True,
         followup_trigger=followup_trigger.strip() or None,
         followup_text=followup_text.strip() or None,
     )
     db.add(question)
     db.commit()
-    logger.info(f"Admin: question ajoutee - {text[:50]}")
     return RedirectResponse(url="/admin?tab=questions&success=Question+ajoutee", status_code=303)
 
 
 @app.post("/admin/questions/{question_id}/edit")
 async def admin_edit_question(
-    question_id: int,
-    text: str = Form(...),
-    problem_type: str = Form(""),
-    problem_label: str = Form(""),
-    schedule_type: str = Form("quotidien"),
-    position: int = Form(0),
-    followup_trigger: str = Form(""),
-    followup_text: str = Form(""),
+    request: Request, question_id: int, text: str = Form(...),
+    problem_type: str = Form(""), problem_label: str = Form(""),
+    schedule_type: str = Form("quotidien"), position: int = Form(0),
+    followup_trigger: str = Form(""), followup_text: str = Form(""),
     db: DBSession = Depends(get_db),
 ):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         return RedirectResponse(url="/admin?tab=questions&error=Question+introuvable", status_code=303)
@@ -451,7 +378,9 @@ async def admin_edit_question(
 
 
 @app.post("/admin/questions/{question_id}/toggle")
-async def admin_toggle_question(question_id: int, db: DBSession = Depends(get_db)):
+async def admin_toggle_question(request: Request, question_id: int, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         return RedirectResponse(url="/admin?tab=questions&error=Question+introuvable", status_code=303)
@@ -462,7 +391,9 @@ async def admin_toggle_question(question_id: int, db: DBSession = Depends(get_db
 
 
 @app.post("/admin/questions/{question_id}/delete")
-async def admin_delete_question(question_id: int, db: DBSession = Depends(get_db)):
+async def admin_delete_question(request: Request, question_id: int, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     question = db.query(Question).filter(Question.id == question_id).first()
     if not question:
         return RedirectResponse(url="/admin?tab=questions&error=Question+introuvable", status_code=303)
@@ -471,24 +402,22 @@ async def admin_delete_question(question_id: int, db: DBSession = Depends(get_db
     return RedirectResponse(url="/admin?tab=questions&success=Question+supprimee", status_code=303)
 
 
-# ─── ADMIN : CHECKS ──────────────────────────────────────────────────────────
+# ─── ADMIN : CHECKS ─────────────────────────────────────────────────────────
 
 
 @app.post("/admin/trigger-daily")
-async def admin_trigger_daily(db: DBSession = Depends(get_db)):
-    """Declenche le check journalier maintenant."""
+async def admin_trigger_daily(request: Request, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     start_daily_check(db)
     return RedirectResponse(url="/admin?tab=checks&success=Check+journalier+envoye", status_code=303)
 
 
 @app.post("/admin/trigger-occasional")
-async def admin_trigger_occasional(
-    request: Request,
-    db: DBSession = Depends(get_db),
-):
-    """Declenche un check occasionnel avec les questions et gerants selectionnes."""
+async def admin_trigger_occasional(request: Request, db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     form = await request.form()
-
     question_ids = [int(v) for k, v in form.multi_items() if k == "question_ids"]
     user_ids = [int(v) for k, v in form.multi_items() if k == "user_ids"]
 
@@ -497,7 +426,6 @@ async def admin_trigger_occasional(
             url="/admin?tab=checks&error=Selectionnez+au+moins+une+question+et+un+gerant",
             status_code=303,
         )
-
     count = start_occasional_check(db, user_ids, question_ids)
     return RedirectResponse(
         url=f"/admin?tab=checks&success=Check+occasionnel+envoye+a+{count}+gerants",
@@ -510,7 +438,8 @@ async def admin_trigger_occasional(
 
 @app.post("/admin/subscribe")
 async def admin_subscribe(request: Request):
-    """Cree une session Stripe Checkout pour s'abonner."""
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     from app.stripe_billing import create_checkout_session
     base_url = str(request.base_url).rstrip("/")
     checkout_url = create_checkout_session(base_url)
@@ -519,7 +448,8 @@ async def admin_subscribe(request: Request):
 
 @app.post("/admin/billing-portal")
 async def admin_billing_portal(request: Request, customer_id: str = Form(...)):
-    """Redirige vers le portail client Stripe pour gerer l'abonnement."""
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     from app.stripe_billing import create_portal_session
     base_url = str(request.base_url).rstrip("/")
     portal_url = create_portal_session(customer_id, base_url)
@@ -528,7 +458,6 @@ async def admin_billing_portal(request: Request, customer_id: str = Form(...)):
 
 @app.post("/stripe/webhook")
 async def stripe_webhook(request: Request):
-    """Webhook Stripe pour recevoir les evenements de paiement."""
     import stripe
     from app.config import STRIPE_WEBHOOK_SECRET
     payload = await request.body()
@@ -536,9 +465,7 @@ async def stripe_webhook(request: Request):
 
     if STRIPE_WEBHOOK_SECRET and sig_header:
         try:
-            event = stripe.Webhook.construct_event(
-                payload, sig_header, STRIPE_WEBHOOK_SECRET
-            )
+            event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
         except Exception as e:
             logger.error(f"Erreur verification webhook Stripe: {e}")
             return PlainTextResponse("Invalid signature", status_code=400)
@@ -546,18 +473,17 @@ async def stripe_webhook(request: Request):
         import json
         event = json.loads(payload)
 
-    event_type = event.get("type", "")
-    logger.info(f"Stripe event: {event_type}")
-
+    logger.info(f"Stripe event: {event.get('type', '')}")
     return {"status": "ok"}
 
 
-# ─── ADMIN : EXPORT ──────────────────────────────────────────────────────────
+# ─── ADMIN : EXPORT ─────────────────────────────────────────────────────────
 
 
 @app.get("/admin/export")
-async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depends(get_db)):
-    """Exporte les checks en CSV."""
+async def admin_export_csv(request: Request, days: int = Query(default=30), db: DBSession = Depends(get_db)):
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     since = date.today() - timedelta(days=days)
     sessions = (
         db.query(CheckSession)
@@ -565,14 +491,10 @@ async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depend
         .order_by(CheckSession.check_date.desc())
         .all()
     )
-
-    # Toutes les questions pour les en-tetes
     all_questions = db.query(Question).order_by(Question.position).all()
-    q_map = {q.id: q for q in all_questions}
 
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
-
     header = ["Date", "Station", "Gerant", "Type"]
     for q in all_questions:
         header.append(q.text[:30])
@@ -583,7 +505,6 @@ async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depend
         user = db.query(User).get(s.user_id)
         answers = db.query(Answer).filter(Answer.session_id == s.id).all()
         answer_map = {a.question_id: a.answer for a in answers}
-
         row = [
             s.check_date.strftime("%d/%m/%Y"),
             user.station if user else "?",
@@ -605,105 +526,41 @@ async def admin_export_csv(days: int = Query(default=30), db: DBSession = Depend
     )
 
 
-# ─── PAGES PUBLIQUES ─────────────────────────────────────────────────────────
+# ─── PAGES PUBLIQUES ────────────────────────────────────────────────────────
 
 
 @app.get("/data-deletion", response_class=HTMLResponse)
 async def data_deletion():
-    """Page de demande de suppression des donnees (requise par Meta)."""
-    return """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head><meta charset="UTF-8"><title>Nissa - Suppression des donnees</title>
-    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}</style>
-    </head>
-    <body>
+    return """<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Nissa - Suppression des donnees</title>
+    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}</style></head><body>
     <h1>Demande de suppression des donnees - Nissa</h1>
-    <p>Conformement aux reglementations en vigueur, vous pouvez demander la suppression de vos donnees personnelles.</p>
-    <h2>Comment demander la suppression ?</h2>
-    <p>Envoyez un message WhatsApp a votre superviseur ou contactez l'administrateur de la plateforme Nissa en indiquant :</p>
-    <ul>
-        <li>Votre nom complet</li>
-        <li>Votre numero de telephone WhatsApp</li>
-        <li>La mention "Demande de suppression de donnees"</li>
-    </ul>
-    <h2>Quelles donnees seront supprimees ?</h2>
-    <ul>
-        <li>Votre profil (nom, numero, station)</li>
-        <li>Toutes vos reponses aux checks de maintenance</li>
-        <li>L'historique de vos sessions</li>
-    </ul>
-    <h2>Delai</h2>
-    <p>Vos donnees seront supprimees dans un delai maximum de <strong>30 jours</strong> suivant votre demande.</p>
-    </body>
-    </html>
-    """
+    <p>Envoyez un message a votre superviseur avec votre nom, numero et la mention "Demande de suppression". Vos donnees seront supprimees sous 30 jours.</p>
+    </body></html>"""
 
 
 @app.get("/privacy", response_class=HTMLResponse)
 async def privacy_policy():
-    """Politique de confidentialite (requise par Meta)."""
-    return """
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head><meta charset="UTF-8"><title>Nissa - Politique de confidentialite</title>
-    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}h2{margin-top:30px;}</style>
-    </head>
-    <body>
-    <h1>Politique de confidentialite - Nissa</h1>
-    <p><strong>Derniere mise a jour :</strong> Avril 2026</p>
-
-    <h2>1. Donnees collectees</h2>
-    <p>Nissa collecte les donnees suivantes dans le cadre du service de maintenance des stations-service :</p>
-    <ul>
-        <li>Numero de telephone WhatsApp des gerants de station</li>
-        <li>Nom et station d'affectation</li>
-        <li>Reponses aux questionnaires de maintenance (OUI/NON et commentaires)</li>
-    </ul>
-
-    <h2>2. Utilisation des donnees</h2>
-    <p>Les donnees sont utilisees exclusivement pour :</p>
-    <ul>
-        <li>Envoyer les checks de maintenance journaliers via WhatsApp</li>
-        <li>Detecter et signaler les problemes aux superviseurs</li>
-        <li>Generer des rapports et statistiques de maintenance</li>
-    </ul>
-
-    <h2>3. Partage des donnees</h2>
-    <p>Les donnees ne sont partagees avec aucun tiers. Seuls les superviseurs autorises ont acces aux rapports.</p>
-
-    <h2>4. Stockage et securite</h2>
-    <p>Les donnees sont stockees de maniere securisee sur des serveurs proteges (Supabase). L'acces est restreint aux administrateurs autorises.</p>
-
-    <h2>5. Suppression des donnees</h2>
-    <p>Les gerants peuvent demander la suppression de leurs donnees en contactant leur superviseur. Les donnees seront supprimees dans un delai de 30 jours.</p>
-
-    <h2>6. Contact</h2>
-    <p>Pour toute question concernant cette politique, contactez l'administrateur de la plateforme Nissa.</p>
-    </body>
-    </html>
-    """
+    return """<!DOCTYPE html><html lang="fr"><head><meta charset="UTF-8"><title>Nissa - Politique de confidentialite</title>
+    <style>body{font-family:sans-serif;max-width:800px;margin:40px auto;padding:0 20px;line-height:1.6;color:#333;}h1{color:#1a1a2e;}h2{margin-top:30px;}</style></head><body>
+    <h1>Politique de confidentialite - Nissa</h1><p><strong>Avril 2026</strong></p>
+    <h2>1. Donnees collectees</h2><p>Numero WhatsApp, nom, station, reponses aux checks.</p>
+    <h2>2. Utilisation</h2><p>Checks de maintenance, alertes superviseur, rapports.</p>
+    <h2>3. Partage</h2><p>Aucun partage avec des tiers.</p>
+    <h2>4. Securite</h2><p>Stockage securise sur serveurs proteges.</p>
+    <h2>5. Suppression</h2><p>Sur demande, sous 30 jours.</p>
+    </body></html>"""
 
 
-# ─── PAGES HTML ──────────────────────────────────────────────────────────────
+# ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: DBSession = Depends(get_db)):
-    """Dashboard de suivi."""
     today = date.today()
     week_ago = today - timedelta(days=7)
-
     users = db.query(User).filter(User.active == True).all()
 
-    # Checks du jour
-    today_sessions = (
-        db.query(CheckSession)
-        .filter(CheckSession.check_date == today)
-        .all()
-    )
-
-    # Stats semaine
+    today_sessions = db.query(CheckSession).filter(CheckSession.check_date == today).all()
     week_sessions = (
         db.query(CheckSession)
         .filter(CheckSession.check_date >= week_ago, CheckSession.completed == True)
@@ -714,14 +571,12 @@ async def dashboard(request: Request, db: DBSession = Depends(get_db)):
     problems_count = sum(1 for s in week_sessions if s.status == "PROBLEME")
     ok_count = total_checks - problems_count
 
-    # Stations en attente aujourd'hui
     completed_user_ids = {s.user_id for s in today_sessions if s.completed}
     all_user_map = {u.id: u.station for u in users}
     completed_stations = {all_user_map[uid] for uid in completed_user_ids if uid in all_user_map}
     all_stations = {u.station for u in users}
     pending_stations = all_stations - completed_stations
 
-    # Details des checks du jour avec reponses
     today_details = []
     for s in today_sessions:
         user = db.query(User).get(s.user_id)
@@ -752,19 +607,21 @@ async def dashboard(request: Request, db: DBSession = Depends(get_db)):
     })
 
 
+# ─── ADMIN PANEL ─────────────────────────────────────────────────────────────
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def admin_panel(
-    request: Request,
-    tab: str = "questions",
-    success: str | None = None,
-    error: str | None = None,
+    request: Request, tab: str = "questions",
+    success: str | None = None, error: str | None = None,
     db: DBSession = Depends(get_db),
 ):
-    """Panneau d'administration."""
+    if not verify_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
+
     users = db.query(User).order_by(User.station).all()
     questions = db.query(Question).order_by(Question.schedule_type, Question.position).all()
 
-    # Historique
     since = date.today() - timedelta(days=30)
     recent_sessions = (
         db.query(CheckSession)
@@ -793,10 +650,8 @@ async def admin_panel(
             "problems": problems,
         })
 
-    # Questions occasionnelles pour le formulaire d'envoi
     occasional_questions = [q for q in questions if q.schedule_type == "occasionnel" and q.active]
 
-    # Abonnement Stripe
     subscription_info = {"active": False, "status": "aucun"}
     invoices = []
     if STRIPE_SECRET_KEY:
