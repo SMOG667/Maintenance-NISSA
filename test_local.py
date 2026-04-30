@@ -34,18 +34,18 @@ print("Tapez vos reponses (OUI/NON) ou 'quit' pour quitter")
 print()
 
 # Premier message pour demarrer le check
-response = handle_incoming_message(db, test_phone, "bonjour")
-print(f"BOT: {response}\n")
+reply_text, resp_type, _ = handle_incoming_message(db, test_phone, "bonjour")
+print(f"BOT: {reply_text}\n")
 
 while True:
     user_input = input("VOUS: ").strip()
     if user_input.lower() == "quit":
         break
 
-    response = handle_incoming_message(db, test_phone, user_input)
-    print(f"\nBOT: {response}\n")
+    reply_text, resp_type, _ = handle_incoming_message(db, test_phone, user_input)
+    print(f"\nBOT: {reply_text}\n")
 
-    if "Check termine" in response or "deja" in response:
+    if "Check termine" in reply_text or "deja" in reply_text:
         break
 
 db.close()
